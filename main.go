@@ -3,6 +3,7 @@ package main
 import (
 	"bytes"
 	"crypto/rand"
+	"encoding/json"
 	"fmt"
 	"io"
 	"io/fs"
@@ -200,17 +201,24 @@ func scopeHTMLComp(comp_markup string, evaled_props map[string]any, comp_props m
 		node, scopedElements = traverse(node, scopedElements, evaled_props)
 
 		if len(comp_props) > 0 {
-			x_data_str, x_init_str := makeGetter(comp_props, fence_logic)
 			attr := html.Attribute{
-				Key: "x-data",
-				Val: x_data_str,
+				Key: "p-scope",
+				Val: flattenCompArgs(comp_props) + makeAttrStr(fence_logic),
 			}
 			node.Attr = append(node.Attr, attr)
-			attr = html.Attribute{
-				Key: "x-init",
-				Val: x_init_str,
-			}
-			node.Attr = append(node.Attr, attr)
+			/*
+				x_data_str, x_init_str := makeGetter(comp_props, fence_logic)
+				attr := html.Attribute{
+					Key: "x-data",
+					Val: x_data_str,
+				}
+				node.Attr = append(node.Attr, attr)
+				attr = html.Attribute{
+					Key: "x-init",
+					Val: x_init_str,
+				}
+				node.Attr = append(node.Attr, attr)
+			*/
 		}
 
 		buf := &strings.Builder{}
@@ -231,19 +239,54 @@ func scopeHTMLComp(comp_markup string, evaled_props map[string]any, comp_props m
 func traverse(node *html.Node, scopedElements []scopedElement, props map[string]any) (*html.Node, []scopedElement) {
 	var traverse func(*html.Node)
 	traverse = func(node *html.Node) {
-		if node.Type == html.ElementNode && node.Data == "html" {
+		if node.Type == html.ElementNode && node.Data == "head" {
 			if len(props) > 0 {
-				attr := html.Attribute{
-					Key: "x-data",
-					Val: makeAttrStr(anyToString(props)),
+				rootDataScript := &html.Node{
+					Type: html.ElementNode,
+					Data: "script",
+					Attr: []html.Attribute{
+						{Key: "id", Val: "p-root-data"},
+						{Key: "type", Val: "application/json"},
+					},
 				}
-				node.Attr = append(node.Attr, attr)
+				// TODO: localDataScipt is an empty placeholder for now
+				// Need to actually separate passed in props and local vars
+				localDataScript := &html.Node{
+					Type: html.ElementNode,
+					Data: "script",
+					Attr: []html.Attribute{
+						{Key: "id", Val: "p-local-data"},
+						{Key: "type", Val: "application/json"},
+					},
+				}
+
+				// Create text node with JSON content
+				data, _ := json.Marshal(props)
+				jsonContent := string(data)
+
+				contentNode := &html.Node{
+					Type: html.TextNode,
+					Data: jsonContent,
+				}
+
+				rootDataScript.AppendChild(contentNode)
+
+				if node.FirstChild != nil {
+					// Insert at the beginning of <head>
+					node.InsertBefore(localDataScript, node.FirstChild)
+					node.InsertBefore(rootDataScript, node.FirstChild)
+				} else {
+					// No children in head
+					node.AppendChild(localDataScript)
+					node.AppendChild(rootDataScript)
+				}
+				return
 			}
 		}
 		if node.Type == html.TextNode {
 			if strings.Contains(node.Data, "{") && strings.Contains(node.Data, "}") {
 				attr := html.Attribute{
-					Key: "x-text",
+					Key: "p-text",
 					Val: "`" + strings.ReplaceAll(strings.ReplaceAll(node.Data, "{", "${"), "\"", "'") + "`",
 				}
 				node.Parent.Attr = append(node.Parent.Attr, attr)
@@ -283,7 +326,7 @@ func traverse(node *html.Node, scopedElements []scopedElement, props map[string]
 					}
 				}
 				if strings.Contains(attr.Val, "{") && strings.Contains(attr.Val, "}") {
-					if attr.Key != "x-text" && attr.Key != "x-data" && attr.Key != "x-init" && !strings.HasPrefix(attr.Key, ":") {
+					if attr.Key != "p-text" && !strings.HasPrefix(attr.Key, ":") {
 						node.Attr = append(node.Attr, html.Attribute{
 							Key: ":" + attr.Key,
 							Val: "`" + strings.ReplaceAll(strings.ReplaceAll(attr.Val, "{", "${"), "\"", "'") + "`",
@@ -797,9 +840,8 @@ type scopeStackItem struct {
 	script         string
 }
 
-// addXDataAttribute adds x-data="" to all top-level HTML elements
-// func addXDataAttribute(htmlStr string, newProps map[string]any) (string, error) {
-func addXDataAttribute(htmlStr string, dataStr string) (string, error) {
+// addPScopeAttribute adds p-scope="" to all top-level HTML elements
+func addPScopeAttribute(htmlStr string, dataStr string) (string, error) {
 	// Parse the HTML string
 	doc, err := html.Parse(strings.NewReader(htmlStr))
 	if err != nil {
@@ -824,20 +866,20 @@ func addXDataAttribute(htmlStr string, dataStr string) (string, error) {
 		return "", fmt.Errorf("no body node found")
 	}
 
-	// Add x-data="" to all top-level elements in the body
+	// Add p-scope="" to all top-level elements in the body
 	for c := body.FirstChild; c != nil; c = c.NextSibling {
 		if c.Type == html.ElementNode {
-			// Check if x-data attribute already exists
-			hasXData := false
+			// Check if p-scope attribute already exists
+			hasPScope := false
 			for _, attr := range c.Attr {
-				if attr.Key == "x-data" {
-					hasXData = true
+				if attr.Key == "p-scope" {
+					hasPScope = true
 					break
 				}
 			}
-			// Add x-data="" if not present
-			if !hasXData {
-				c.Attr = append(c.Attr, html.Attribute{Key: "x-data", Val: dataStr})
+			// Add p-scope="" if not present
+			if !hasPScope {
+				c.Attr = append(c.Attr, html.Attribute{Key: "p-scope", Val: dataStr})
 			}
 		}
 	}
@@ -899,9 +941,8 @@ func evalControlTree(controlTree []control, scopeStack []scopeStackItem, props m
 					}
 					newProps[ctrl.forVar] = item
 					markup, newScopeStack := evalControlTree(ctrl.children, scopeStack, newProps, components)
-					//markup, _ = addXDataAttribute(markup, newProps)
 					dataStr := "{" + ctrl.forVar + ": " + makeAttrStr(anyToString(item)) + "}"
-					markup, _ = addXDataAttribute(markup, dataStr)
+					markup, _ = addPScopeAttribute(markup, dataStr)
 					markupBuilder.WriteString(markup)
 					scopeStack = newScopeStack
 				}
@@ -1068,6 +1109,14 @@ func anyToString(value any) string {
 	}
 }
 
+func flattenCompArgs(m map[string]any) string {
+	parts := make([]string, 0, len(m))
+	for k, v := range m {
+		parts = append(parts, fmt.Sprintf("%s = %s;", k, v))
+	}
+	return strings.Join(parts, " ")
+}
+
 func makeGetter(comp_data map[string]any, fence_logic string) (string, string) {
 	x_data_str := fmt.Sprintf("_fence: `%s`,", fence_logic)
 
@@ -1153,6 +1202,7 @@ func main() {
 		elapsed := time.Since(start)
 		fmt.Printf("Execution time: %s\n", elapsed)
 	*/
+	copyFile("./views/pattr.js", "./public/pattr.js")
 	copyFile("./views/cms.js", "./public/cms.js")
 	copyFile("./views/cms.css", "./public/cms.css")
 

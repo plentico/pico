@@ -7,7 +7,7 @@ function createInputs(obj, container) {
         if (Object.hasOwnProperty.call(obj, key)) {
             const input = document.createElement('input');
             input.type = 'text';
-            let attribute = "x-model";
+            let attribute = "p-model";
             if (typeof obj[key] === 'number') {
                 input.type = 'number';
                 attribute += ".number";
