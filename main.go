@@ -201,6 +201,10 @@ func scopeHTMLComp(comp_markup string, evaled_props map[string]any, comp_props m
 		node, scopedElements = traverse(node, scopedElements, evaled_props)
 
 		if len(comp_props) > 0 {
+			// TODO: What if expected prop isn't passed? Should flattenCompArgs handle? How will it know what's expected?
+			// Currently if comp has default value, SSR renders it. If no default, SSR renders blank
+			// Currently when hydrated, comp has no scope (because comp_props is not > 0) and will get Parent scope (this is incorrect)
+			// Should be if default value, scope to hardcoded default, if no default scope to undefined? Blank to match SSR?
 			attr := html.Attribute{
 				Key: "p-scope",
 				Val: flattenCompArgs(comp_props) + makeAttrStr(fence_logic),
@@ -972,7 +976,7 @@ func evalControlTree(controlTree []control, scopeStack []scopeStackItem, props m
 			evaluatedCompPath := evalAllBrackets(ctrl.dynamicCompPath, props)
 			markup, script, style, newScopeStack, fence_logic := RecursiveRender(evaluatedCompPath, newProps, scopeStack)
 			// Create scoped classes and add to html
-			markup, scopedElements := scopeHTMLComp(markup, newProps, ctrl.compProps, fence_logic)
+			markup, scopedElements := scopeHTMLComp(markup, newProps, ctrl.dynamicCompProps, fence_logic)
 			// Add scoped classes to css
 			newScopeStack = append(newScopeStack, scopeStackItem{
 				scopedElements: scopedElements,
