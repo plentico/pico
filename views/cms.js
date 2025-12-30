@@ -1,6 +1,4 @@
-let htmlEl = document.getElementsByTagName("html")[0];
-let cms_fields_str = htmlEl.getAttribute("x-data");
-let cms_fields = eval("(" + cms_fields_str + ")");
+const cms_fields = JSON.parse(document.getElementById('p-root-data').textContent);
 
 function createInputs(obj, container) {
     for (const key in obj) {
