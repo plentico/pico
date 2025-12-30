@@ -8,7 +8,6 @@ function createInputs(obj, container) {
             let attribute = "p-model";
             if (typeof obj[key] === 'number') {
                 input.type = 'number';
-                attribute += ".number";
             }
             input.id = key;
             input.name = key;

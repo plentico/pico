@@ -594,8 +594,43 @@ window.Pattr = {
                 // 2. p-model Two-Way Binding Setup (Hydration Only)
                 if (isHydrating && attribute.name === 'p-model') {
                     el.addEventListener('input', (e) => {
-                        eval(`with (el._scope) { ${attribute.value} = e.target.value }`);
+                        let value;
+                        const type = e.target.type;
+                        
+                        // Convert value based on input type
+                        if (type === 'number' || type === 'range') {
+                            // Convert to number, handle empty string
+                            value = e.target.value === '' ? null : Number(e.target.value);
+                        } else if (type === 'checkbox') {
+                            value = e.target.checked;
+                        } else if (type === 'radio') {
+                            // For radio buttons, use the value if checked
+                            value = e.target.checked ? e.target.value : undefined;
+                        } else {
+                            // Text, email, url, search, tel, password, etc. - keep as string
+                            value = e.target.value;
+                        }
+                        
+                        // Only update if we have a valid value (skip undefined for unchecked radios)
+                        if (value !== undefined) {
+                            eval(`with (el._scope) { ${attribute.value} = value }`);
+                        }
                     });
+                    
+                    // For checkbox and radio, also listen to 'change' event for better UX
+                    if (el.type === 'checkbox' || el.type === 'radio') {
+                        el.addEventListener('change', (e) => {
+                            let value;
+                            if (el.type === 'checkbox') {
+                                value = e.target.checked;
+                            } else {
+                                value = e.target.checked ? e.target.value : undefined;
+                            }
+                            if (value !== undefined) {
+                                eval(`with (el._scope) { ${attribute.value} = value }`);
+                            }
+                        });
+                    }
                 }
                 
                 // 3. Directive Evaluation (Both Hydration and Refresh)
