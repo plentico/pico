@@ -33,17 +33,19 @@ type Component struct {
 }
 
 // Render renders the template with the given data
-func RecursiveRender(path string, props map[string]any, scopeStack []scopeStackItem) (string, string, string, []scopeStackItem, map[string]any, string) {
+func RecursiveRender(path string, props map[string]any, scopeStack []scopeStackItem) (string, string, string, []scopeStackItem, map[string]any) {
 	// Split template into parts
 	markup, fence, script, style := templateParts(path)
 	// Get list of imported components and remove imports from fence
 	fence, components := getComponents(path, fence)
-	// Set the prop to the value that's passed in
-	fence, fence_logic := setProps(fence, props)
 	// Get list of all variables declared in fence
 	localVars := getLocalVars(fence, props)
-	// Run the JS in Goja to get the computed values for props
-	//props = evaluateProps(fence, localVars, props)
+	// Set the prop to the value that's passed in
+	fence, propDefaults := setProps(fence, props)
+	// Merge defaults into p-local-data
+	for k, v := range propDefaults {
+		localVars[k] = v
+	}
 	// Build AST with {if} and {for} controls + text nodes
 	controlTree, err := buildControlTree(markup)
 	if err != nil {
@@ -51,11 +53,11 @@ func RecursiveRender(path string, props map[string]any, scopeStack []scopeStackI
 	}
 	markup, scopeStack = evalControlTree(controlTree, scopeStack, props, localVars, fence, components)
 
-	return markup, script, style, scopeStack, localVars, fence_logic
+	return markup, script, style, scopeStack, localVars
 }
 
-func Render(path string, props map[string]any) (string, string, string, string) {
-	markup, script, style, scopeStack, localVars, fence_logic := RecursiveRender(path, props, []scopeStackItem{})
+func Render(path string, props map[string]any) (string, string, string) {
+	markup, script, style, scopeStack, localVars := RecursiveRender(path, props, []scopeStackItem{})
 	// Create scoped classes and add to html
 	markup, scopedElements := scopeHTML(markup, props, localVars, "")
 	scopeStack = append(scopeStack, scopeStackItem{
@@ -66,7 +68,7 @@ func Render(path string, props map[string]any) (string, string, string, string) 
 	// Add scoped classes to css
 	style, script = evalScopeStack(scopeStack)
 
-	return markup, script, style, fence_logic
+	return markup, script, style
 }
 
 func evalScopeStack(scopeStack []scopeStackItem) (string, string) {
@@ -168,8 +170,6 @@ func scopeHTML(markup string, props map[string]any, localVars map[string]any, fe
 	scopedElements := []scopedElement{}
 	node, _ := html.Parse(strings.NewReader(markup))
 
-	fmt.Println(props)
-	fmt.Println(localVars)
 	node, scopedElements = traverse(node, scopedElements, props, localVars, fence)
 
 	// Render the modified HTML back to a string
@@ -183,7 +183,7 @@ func scopeHTML(markup string, props map[string]any, localVars map[string]any, fe
 	return markup, scopedElements
 }
 
-func scopeHTMLComp(comp_markup string, props map[string]any, comp_props map[string]any, fence string, fence_logic string) (string, []scopedElement) {
+func scopeHTMLComp(comp_markup string, props map[string]any, comp_props map[string]any, fence string, localVars map[string]any) (string, []scopedElement) {
 	// We scope components differently than the full document
 	// because html.Parse() builds a full document tree, aka wraps the component in <html><body></body></html>.
 	// This shakes out when getting applied to the existing document tree, but we've scope styles for the html and body elements
@@ -209,7 +209,7 @@ func scopeHTMLComp(comp_markup string, props map[string]any, comp_props map[stri
 			// Should be if default value, scope to hardcoded default, if no default scope to undefined? Blank to match SSR?
 			attr := html.Attribute{
 				Key: "p-scope",
-				Val: flattenCompArgs(comp_props) + makeAttrStr(fence_logic),
+				Val: flattenCompArgs(comp_props) + flattenCompArgs(localVars),
 			}
 			node.Attr = append(node.Attr, attr)
 			pID, _ := generateRandom()
@@ -498,21 +498,26 @@ func templateParts(path string) (string, string, string, string) {
 	return markup, fence, script, style
 }
 
-func setProps(fence string, props map[string]any) (string, string) {
-	fence_logic := fence
+func setProps(fence string, props map[string]any) (string, map[string]any) {
 	for name, value := range props {
 		reProp := regexp.MustCompile(fmt.Sprintf(`prop (%s)(\s?=\s?(.*?))?;`, name))
-		fence_logic = reProp.ReplaceAllString(fence_logic, "")
 		fence = reProp.ReplaceAllString(fence, "let "+name+" = "+anyToString(value)+";")
 	}
-	// Convert prop to let for unpassed props
-	rePropDefaults := regexp.MustCompile(`prop (.*?);`)
-	fence_logic = rePropDefaults.ReplaceAllString(fence_logic, "")
+
+	propDefaults := map[string]any{}
+	rePropDefaults := regexp.MustCompile(`prop\s([a-zA-Z_$]*)(?:\s?=\s?(.*?))?;`)
+	// Only matches unpassed props, since found props were converted in fence above
+	matches := rePropDefaults.FindAllStringSubmatch(fence, -1)
+	for _, match := range matches {
+		name := match[1]
+		value := match[2] // This will be empty string if no "=" exists
+		if value != "" {
+			propDefaults[name] = stringToAny(strings.TrimSpace(value))
+		}
+	}
 	fence = rePropDefaults.ReplaceAllString(fence, "let $1;") // Works with equals or not
 
-	fence_logic = makeAttrStr(fence_logic)
-
-	return fence, fence_logic
+	return fence, propDefaults
 }
 
 func makeAttrStr(str string) string {
@@ -527,26 +532,21 @@ func makeAttrStr(str string) string {
 	return str
 }
 
-// func getLocalVars(fence string) []string {
 func getLocalVars(fence string, props map[string]any) map[string]any {
-	//allVars := []string{}
 	localVars := map[string]any{}
-	reAllVars := regexp.MustCompile(`(?:let|const|var) (?P<name>.*?)(?:\s?=\s?(?P<value>.*?))?;`)
+	reAllVars := regexp.MustCompile(`(?m)^\s*(?:let|const|var) (?P<name>.*?)(?:\s?=\s?(?P<value>.*?))?;`)
 	nameIndex := reAllVars.SubexpIndex("name")
 	valueIndex := reAllVars.SubexpIndex("value")
 	matches := reAllVars.FindAllStringSubmatch(fence, -1)
 	for _, currentVar := range matches {
-		// Don't need to set value since that gets evaluated in Goja
-		//allVars = append(allVars, currentVar[nameIndex])
 		name := currentVar[nameIndex]
 		value := currentVar[valueIndex]
 		if _, exists := props[name]; exists {
+			// Don't add props that are passed in (p-root-data) to localVars (p-local-data)
 			continue
 		}
-		//localVars[currentVar[nameIndex]] = currentVar[valueIndex]
-		localVars[name] = value
+		localVars[name] = stringToAny(value)
 	}
-	//return allVars
 	return localVars
 }
 
@@ -975,9 +975,9 @@ func evalControlTree(controlTree []control, scopeStack []scopeStackItem, props m
 					compPath = comp.Path
 				}
 			}
-			markup, script, style, newScopeStack, _, fence_logic := RecursiveRender(compPath, newProps, scopeStack)
+			markup, script, style, newScopeStack, newLocalVars := RecursiveRender(compPath, newProps, scopeStack)
 			// Create scoped classes and add to html
-			markup, scopedElements := scopeHTMLComp(markup, newProps, ctrl.compProps, fence, fence_logic)
+			markup, scopedElements := scopeHTMLComp(markup, newProps, ctrl.compProps, fence, newLocalVars)
 			// Add scoped classes to css
 			newScopeStack = append(newScopeStack, scopeStackItem{
 				scopedElements: scopedElements,
@@ -993,9 +993,9 @@ func evalControlTree(controlTree []control, scopeStack []scopeStackItem, props m
 				newProps[prop_name] = evalJS(fmt.Sprintf(`%s`, prop_value), fence)
 			}
 			evaluatedCompPath := evalAllBrackets(ctrl.dynamicCompPath, fence)
-			markup, script, style, newScopeStack, _, fence_logic := RecursiveRender(evaluatedCompPath, newProps, scopeStack)
+			markup, script, style, newScopeStack, newLocalVars := RecursiveRender(evaluatedCompPath, newProps, scopeStack)
 			// Create scoped classes and add to html
-			markup, scopedElements := scopeHTMLComp(markup, newProps, ctrl.dynamicCompProps, fence, fence_logic)
+			markup, scopedElements := scopeHTMLComp(markup, newProps, ctrl.dynamicCompProps, fence, newLocalVars)
 			// Add scoped classes to css
 			newScopeStack = append(newScopeStack, scopeStackItem{
 				scopedElements: scopedElements,
@@ -1125,6 +1125,15 @@ func anyToString(value any) string {
 	}
 }
 
+func stringToAny(s string) any {
+	var val any
+	err := json.Unmarshal([]byte(s), &val)
+	if err != nil {
+		return s
+	}
+	return val
+}
+
 func flattenCompArgs(m map[string]any) string {
 	parts := make([]string, 0, len(m))
 	for k, v := range m {
@@ -1167,7 +1176,7 @@ func copyFile(sourcePath, destPath string) {
 func main() {
 	// Render the template with data
 	props := map[string]any{"name": "Ja", "age": 2, "animals": []string{"cat", "dog", "pig"}}
-	markup, script, style, _ := Render("views/home.html", props)
+	markup, script, style := Render("views/home.html", props)
 	os.MkdirAll("./public", os.ModePerm)
 	os.WriteFile("./public/script.js", []byte(script), fs.ModePerm)
 	os.WriteFile("./public/style.css", []byte(style), fs.ModePerm)
