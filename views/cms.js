@@ -3,7 +3,10 @@ const cms_local_fields = JSON.parse(document.getElementById('p-local-data').text
 
 function createInputs(obj, container, title) {
     container.appendChild(document.createElement('br'));
-    container.appendChild(document.createElement('h3')).textContent=title;
+    fieldset = document.createElement('fieldset');
+    legend = document.createElement('legend');
+    legend.textContent=title;
+    fieldset.appendChild(legend);
     for (const key in obj) {
         if (Object.hasOwnProperty.call(obj, key)) {
             const input = document.createElement('input');
@@ -20,12 +23,13 @@ function createInputs(obj, container, title) {
             label.htmlFor = key;
             label.textContent = key;
             const div = document.createElement('div').appendChild(label).parentNode;
-            container.appendChild(div);
-            container.appendChild(input);
-            container.appendChild(document.createElement('br'));
-            container.appendChild(document.createElement('br'));
+            fieldset.appendChild(div);
+            fieldset.appendChild(input);
+            fieldset.appendChild(document.createElement('br'));
+            fieldset.appendChild(document.createElement('br'));
         }
     }
+    container.appendChild(fieldset);
 }
 const cms = document.getElementById('plenti_cms');
 createInputs(cms_root_fields, cms, "Root Data");
