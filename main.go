@@ -41,9 +41,9 @@ func RecursiveRender(path string, props map[string]any, scopeStack []scopeStackI
 	// Get list of all variables declared in fence
 	localVars := getLocalVars(fence, props)
 	// Set the prop to the value that's passed in
-	fence, propDefaults := setProps(fence, props)
+	fence, unpassedPropDefaults := setProps(fence, props)
 	// Merge defaults into p-local-data
-	for k, v := range propDefaults {
+	for k, v := range unpassedPropDefaults {
 		localVars[k] = v
 	}
 	// Build AST with {if} and {for} controls + text nodes
@@ -504,20 +504,21 @@ func setProps(fence string, props map[string]any) (string, map[string]any) {
 		fence = reProp.ReplaceAllString(fence, "let "+name+" = "+anyToString(value)+";")
 	}
 
-	propDefaults := map[string]any{}
-	rePropDefaults := regexp.MustCompile(`prop\s([a-zA-Z_$]*)(?:\s?=\s?(.*?))?;`)
+	unpassedPropDefaults := map[string]any{}
+	rePropDefaults := regexp.MustCompile(`prop\s([a-zA-Z_$]*)(\s?=\s?(.*?))?;`)
 	// Only matches unpassed props, since found props were converted in fence above
 	matches := rePropDefaults.FindAllStringSubmatch(fence, -1)
 	for _, match := range matches {
 		name := match[1]
-		value := match[2] // This will be empty string if no "=" exists
+		// note group 2 is the full " = whatever"
+		value := match[3] // This will be empty string if no "=" exists
 		if value != "" {
-			propDefaults[name] = stringToAny(strings.TrimSpace(value))
+			unpassedPropDefaults[name] = stringToAny(strings.TrimSpace(value))
 		}
 	}
-	fence = rePropDefaults.ReplaceAllString(fence, "let $1;") // Works with equals or not
+	fence = rePropDefaults.ReplaceAllString(fence, "let $1$2;")
 
-	return fence, propDefaults
+	return fence, unpassedPropDefaults
 }
 
 func makeAttrStr(str string) string {
@@ -1176,6 +1177,7 @@ func copyFile(sourcePath, destPath string) {
 func main() {
 	// Render the template with data
 	props := map[string]any{"name": "Ja", "age": 2, "animals": []string{"cat", "dog", "pig"}}
+	//props := map[string]any{"name": "Ja", "age": 2, "animals": []string{"cat", "dog", "pig"}, "test": "sup"}
 	markup, script, style := Render("views/home.html", props)
 	os.MkdirAll("./public", os.ModePerm)
 	os.WriteFile("./public/script.js", []byte(script), fs.ModePerm)
