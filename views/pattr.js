@@ -527,6 +527,24 @@ window.Pattr = {
                 // If scope wasn't stored during hydration, use parent scope
                 if (!currentScope) {
                     currentScope = parentScope;
+                } else if (el === this.root) {
+                    // Root element - re-execute p-scope to update computed values
+                    currentScope = parentScope;
+                    const pScopeExpr = el.getAttribute('p-scope');
+                    if (pScopeExpr && pScopeExpr.trim()) {
+                        try {
+                            const statements = pScopeExpr.split(';').map(s => s.trim()).filter(s => s);
+                            
+                            this.isExecutingScope = true;
+                            statements.forEach(stmt => {
+                                eval(`with (currentScope) { ${stmt} }`);
+                            });
+                            this.isExecutingScope = false;
+                        } catch (e) {
+                            this.isExecutingScope = false;
+                            console.error(`Error re-executing root p-scope expression:`, e);
+                        }
+                    }
                 } else {
                     // Check if parent values changed - if so, selectively re-execute p-scope
                     const pScopeExpr = el.getAttribute('p-scope');
