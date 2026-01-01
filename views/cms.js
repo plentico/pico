@@ -1,5 +1,5 @@
 const cms_root_fields = JSON.parse(document.getElementById('p-root-data').textContent);
-const cms_local_fields = JSON.parse(document.getElementById('p-local-data').textContent);
+//const cms_local_fields = JSON.parse(document.getElementById('p-local-data').textContent);
 
 function createInputs(obj, container, title) {
     container.appendChild(document.createElement('br'));
@@ -33,7 +33,7 @@ function createInputs(obj, container, title) {
 }
 const cms = document.getElementById('plenti_cms');
 createInputs(cms_root_fields, cms, "Root Data");
-createInputs(cms_local_fields, cms, "Local Data");
+//createInputs(cms_local_fields, cms, "Local Data");
 
 document.getElementById('toggle_plenti_cms').addEventListener('click', function () {
     const menu = document.getElementById('plenti_cms');

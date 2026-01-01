@@ -170,7 +170,64 @@ func scopeHTML(markup string, props map[string]any, localVars map[string]any, fe
 	scopedElements := []scopedElement{}
 	node, _ := html.Parse(strings.NewReader(markup))
 
-	node, scopedElements = traverse(node, scopedElements, props, localVars, fence)
+	var htmlNode *html.Node
+	for c := node.FirstChild; c != nil; c = c.NextSibling {
+		if c.Type == html.ElementNode && c.Data == "html" {
+			htmlNode = c
+			break
+		}
+	}
+
+	var headNode *html.Node
+	if htmlNode != nil {
+		for c := htmlNode.FirstChild; c != nil; c = c.NextSibling {
+			if c.Type == html.ElementNode && c.Data == "head" {
+				headNode = c
+				break
+			}
+		}
+		if len(localVars) > 0 {
+			pScopeAttr := html.Attribute{
+				Key: "p-scope",
+				Val: flattenCompArgs(localVars),
+			}
+			htmlNode.Attr = append(node.Attr, pScopeAttr)
+
+			pID, _ := generateRandom()
+			pIDAttr := html.Attribute{
+				Key: "p-id",
+				Val: pID,
+			}
+			htmlNode.Attr = append(htmlNode.Attr, pIDAttr)
+		}
+	}
+
+	if headNode != nil {
+		if len(props) > 0 {
+			rootData, _ := json.Marshal(props)
+			rootDataScript := &html.Node{
+				Type: html.ElementNode,
+				Data: "script",
+				Attr: []html.Attribute{
+					{Key: "id", Val: "p-root-data"},
+					{Key: "type", Val: "application/json"},
+				},
+			}
+			rootDataScript.AppendChild(&html.Node{
+				Type: html.TextNode,
+				Data: string(rootData),
+			})
+
+			// Insert at the very beginning of <head>
+			if headNode.FirstChild != nil {
+				headNode.InsertBefore(rootDataScript, headNode.FirstChild)
+			} else {
+				headNode.AppendChild(rootDataScript)
+			}
+		}
+	}
+
+	node, scopedElements = traverse(node, scopedElements, fence)
 
 	// Render the modified HTML back to a string
 	buf := &strings.Builder{}
@@ -200,7 +257,7 @@ func scopeHTMLComp(comp_markup string, props map[string]any, comp_props map[stri
 		DataAtom: atom.Body,
 	})
 	for _, node := range nodes {
-		node, scopedElements = traverse(node, scopedElements, props, nil, fence)
+		node, scopedElements = traverse(node, scopedElements, fence)
 
 		if len(comp_props) > 0 {
 			// TODO: What if expected prop isn't passed? Should flattenCompArgs handle? How will it know what's expected?
@@ -235,59 +292,19 @@ func scopeHTMLComp(comp_markup string, props map[string]any, comp_props map[stri
 	return comp_markup, scopedElements
 }
 
-func traverse(node *html.Node, scopedElements []scopedElement, props map[string]any, localVars map[string]any, fence string) (*html.Node, []scopedElement) {
+func traverse(node *html.Node, scopedElements []scopedElement, fence string) (*html.Node, []scopedElement) {
 	var traverse func(*html.Node)
 	traverse = func(node *html.Node) {
-		if node.Type == html.ElementNode && node.Data == "head" {
-			if len(props) > 0 {
-				rootDataScript := &html.Node{
-					Type: html.ElementNode,
-					Data: "script",
-					Attr: []html.Attribute{
-						{Key: "id", Val: "p-root-data"},
-						{Key: "type", Val: "application/json"},
-					},
-				}
-				// Create text node with JSON content
-				rootData, _ := json.Marshal(props)
-				rootJsonContent := string(rootData)
-				rootContentNode := &html.Node{
-					Type: html.TextNode,
-					Data: rootJsonContent,
-				}
-				rootDataScript.AppendChild(rootContentNode)
-
-				localDataScript := &html.Node{
-					Type: html.ElementNode,
-					Data: "script",
-					Attr: []html.Attribute{
-						{Key: "id", Val: "p-local-data"},
-						{Key: "type", Val: "application/json"},
-					},
-				}
-				// Create text node with JSON content
-				localData, _ := json.Marshal(localVars)
-				localJsonContent := string(localData)
-				localContentNode := &html.Node{
-					Type: html.TextNode,
-					Data: localJsonContent,
-				}
-				localDataScript.AppendChild(localContentNode)
-
-				if node.FirstChild != nil {
-					// Insert at the beginning of <head>
-					node.InsertBefore(localDataScript, node.FirstChild)
-					node.InsertBefore(rootDataScript, node.FirstChild)
-				} else {
-					// No children in head
-					node.AppendChild(localDataScript)
-					node.AppendChild(rootDataScript)
-				}
-				return
-			}
-		}
 		if node.Type == html.TextNode {
 			if strings.Contains(node.Data, "{") && strings.Contains(node.Data, "}") {
+				if p := node.Parent; p != nil && p.Data == "script" {
+					for _, attr := range p.Attr {
+						if attr.Key == "type" && attr.Val == "application/json" {
+							// Don't run on JSON
+							return
+						}
+					}
+				}
 				attr := html.Attribute{
 					Key: "p-text",
 					Val: "`" + strings.ReplaceAll(strings.ReplaceAll(node.Data, "{", "${"), "\"", "'") + "`",
@@ -513,7 +530,7 @@ func setProps(fence string, props map[string]any) (string, map[string]any) {
 		// note group 2 is the full " = whatever"
 		value := match[3] // This will be empty string if no "=" exists
 		if value != "" {
-			unpassedPropDefaults[name] = stringToAny(strings.TrimSpace(value))
+			unpassedPropDefaults[name] = strings.TrimSpace(value)
 		}
 	}
 	fence = rePropDefaults.ReplaceAllString(fence, "let $1$2;")
@@ -546,7 +563,7 @@ func getLocalVars(fence string, props map[string]any) map[string]any {
 			// Don't add props that are passed in (p-root-data) to localVars (p-local-data)
 			continue
 		}
-		localVars[name] = stringToAny(value)
+		localVars[name] = value
 	}
 	return localVars
 }
@@ -1124,15 +1141,6 @@ func anyToString(value any) string {
 	default:
 		return formatElement(value)
 	}
-}
-
-func stringToAny(s string) any {
-	var val any
-	err := json.Unmarshal([]byte(s), &val)
-	if err != nil {
-		return s
-	}
-	return val
 }
 
 func flattenCompArgs(m map[string]any) string {

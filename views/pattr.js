@@ -154,27 +154,11 @@ window.Pattr = {
 
         // Load root data (props from CMS)
         const rootDataJsonString = document.getElementById("p-root-data")?.textContent;
-        let rootData = {};
         try {
-            rootData = JSON.parse(rootDataJsonString || '{}');
+            this.rawData = JSON.parse(rootDataJsonString || '{}');
         } catch (e) {
             console.error("Error parsing root data JSON:", e);
         }
-
-        // Load local data (UI state variables)
-        const localDataJsonString = document.getElementById("p-local-data")?.textContent;
-        let localData = {};
-        try {
-            localData = JSON.parse(localDataJsonString || '{}');
-        } catch (e) {
-            console.error("Error parsing local data JSON:", e);
-        }
-
-        // Merge root and local data
-        this.rawData = { ...rootData, ...localData };
-        
-        // Store root data keys for future API saving (only save props, not local vars)
-        this.rootDataKeys = Object.keys(rootData);
 
         this.buildScopeData(this.root, this.rawData);
         this.data = this.observe(this.rawData)
@@ -185,15 +169,38 @@ window.Pattr = {
     buildScopeData(el, parentData) {
         let currentData = parentData;
         if (el.hasAttribute('p-scope')) {
-            const dataId = el.getAttribute('p-id') || 'missing_p-id';
-            if (!parentData._p_children) {
-                parentData._p_children = {};
+            const dataId = el.getAttribute('p-id');
+            
+            // Root element (html) - initialize variables directly on parentData before creating proxy
+            if (el === this.root && dataId) {
+                currentData = parentData;
+                // Parse and initialize root scope variables
+                const pScopeExpr = el.getAttribute('p-scope');
+                const statements = pScopeExpr.split(';').map(s => s.trim()).filter(s => s);
+                
+                // Initialize variables by extracting variable assignments
+                statements.forEach(stmt => {
+                    const match = stmt.match(/^\s*(\w+)\s*=/);
+                    if (match) {
+                        const varName = match[1];
+                        // Initialize with undefined so the proxy knows about it
+                        if (!(varName in parentData)) {
+                            parentData[varName] = undefined;
+                        }
+                    }
+                });
+                currentData._p_scope = pScopeExpr;
+            } else if (dataId) {
+                // Child elements - store in _p_children
+                if (!parentData._p_children) {
+                    parentData._p_children = {};
+                }
+                if (!parentData._p_children[dataId]) {
+                    parentData._p_children[dataId] = {};
+                }
+                currentData = parentData._p_children[dataId]; 
+                currentData._p_scope = el.getAttribute('p-scope');
             }
-            if (!parentData._p_children[dataId]) {
-                parentData._p_children[dataId] = {};
-            }
-            currentData = parentData._p_children[dataId]; 
-            currentData._p_scope = el.getAttribute('p-scope');
         }
         let child = el.firstElementChild;
         while (child) {
@@ -469,25 +476,49 @@ window.Pattr = {
             // A. HYDRATION PHASE (One-Time Setup)
             if (isHydrating) {
                 const dataId = el.getAttribute('p-id');
-                const localRawData = parentScope._p_target._p_children[dataId]; 
                 
-                // 1. Create new inherited Proxy
-                currentScope = this.observe(localRawData, parentScope); 
-                
-                // 2. Execute p-scope assignments sequentially (e.g., count = count + 5; count = count * 2)
-                try {
-                    // Split p-scope into individual statements
-                    const statements = localRawData._p_scope.split(';').map(s => s.trim()).filter(s => s);
+                // Handle root element differently
+                if (el === this.root && dataId) {
+                    // Root element - parentScope is already the observed proxy (this.data)
+                    // Just execute the p-scope statements directly on it
+                    currentScope = parentScope;
                     
-                    // Execute all statements without triggering DOM walks in between
-                    this.isExecutingScope = true;
-                    statements.forEach(stmt => {
-                        eval(`with (currentScope) { ${stmt} }`);
-                    });
-                    this.isExecutingScope = false;
-                } catch (e) {
-                    this.isExecutingScope = false;
-                    console.error(`Error executing p-scope expression on ${dataId}:`, e);
+                    // Execute p-scope assignments for root
+                    try {
+                        const pScopeExpr = el.getAttribute('p-scope');
+                        const statements = pScopeExpr.split(';').map(s => s.trim()).filter(s => s);
+                        
+                        this.isExecutingScope = true;
+                        statements.forEach(stmt => {
+                            eval(`with (currentScope) { ${stmt} }`);
+                        });
+                        this.isExecutingScope = false;
+                    } catch (e) {
+                        this.isExecutingScope = false;
+                        console.error(`Error executing p-scope expression on ${dataId}:`, e);
+                    }
+                } else if (dataId) {
+                    // Child element - use _p_children
+                    const localRawData = parentScope._p_target._p_children[dataId]; 
+                    
+                    // 1. Create new inherited Proxy
+                    currentScope = this.observe(localRawData, parentScope); 
+                    
+                    // 2. Execute p-scope assignments sequentially (e.g., count = count + 5; count = count * 2)
+                    try {
+                        // Split p-scope into individual statements
+                        const statements = localRawData._p_scope.split(';').map(s => s.trim()).filter(s => s);
+                        
+                        // Execute all statements without triggering DOM walks in between
+                        this.isExecutingScope = true;
+                        statements.forEach(stmt => {
+                            eval(`with (currentScope) { ${stmt} }`);
+                        });
+                        this.isExecutingScope = false;
+                    } catch (e) {
+                        this.isExecutingScope = false;
+                        console.error(`Error executing p-scope expression on ${dataId}:`, e);
+                    }
                 }
             } else {
                 // B. REFRESH PHASE (Use stored scope)
