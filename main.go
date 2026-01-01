@@ -33,7 +33,7 @@ type Component struct {
 }
 
 // Render renders the template with the given data
-func RecursiveRender(path string, props map[string]any, scopeStack []scopeStackItem) (string, string, string, []scopeStackItem, map[string]any) {
+func RecursiveRender(path string, props map[string]any, scopeStack []scopeStackItem) (string, string, string, []scopeStackItem, map[string]any, string) {
 	// Split template into parts
 	markup, fence, script, style := templateParts(path)
 	// Get list of imported components and remove imports from fence
@@ -53,13 +53,13 @@ func RecursiveRender(path string, props map[string]any, scopeStack []scopeStackI
 	}
 	markup, scopeStack = evalControlTree(controlTree, scopeStack, props, localVars, fence, components)
 
-	return markup, script, style, scopeStack, localVars
+	return markup, script, style, scopeStack, localVars, fence
 }
 
 func Render(path string, props map[string]any) (string, string, string) {
-	markup, script, style, scopeStack, localVars := RecursiveRender(path, props, []scopeStackItem{})
+	markup, script, style, scopeStack, localVars, fence := RecursiveRender(path, props, []scopeStackItem{})
 	// Create scoped classes and add to html
-	markup, scopedElements := scopeHTML(markup, props, localVars, "")
+	markup, scopedElements := scopeHTML(markup, props, localVars, fence)
 	scopeStack = append(scopeStack, scopeStackItem{
 		scopedElements: scopedElements,
 		style:          style,
@@ -968,9 +968,9 @@ func evalControlTree(controlTree []control, scopeStack []scopeStackItem, props m
 					compPath = comp.Path
 				}
 			}
-			markup, script, style, newScopeStack, newLocalVars := RecursiveRender(compPath, newProps, scopeStack)
+			markup, script, style, newScopeStack, newLocalVars, newFence := RecursiveRender(compPath, newProps, scopeStack)
 			// Create scoped classes and add to html
-			markup, scopedElements := scopeHTMLComp(markup, ctrl.compProps, fence, newLocalVars)
+			markup, scopedElements := scopeHTMLComp(markup, ctrl.compProps, newFence, newLocalVars)
 			// Add scoped classes to css
 			newScopeStack = append(newScopeStack, scopeStackItem{
 				scopedElements: scopedElements,
@@ -986,9 +986,9 @@ func evalControlTree(controlTree []control, scopeStack []scopeStackItem, props m
 				newProps[prop_name] = evalJS(fmt.Sprintf(`%s`, prop_value), fence)
 			}
 			evaluatedCompPath := evalAllBrackets(ctrl.dynamicCompPath, fence)
-			markup, script, style, newScopeStack, newLocalVars := RecursiveRender(evaluatedCompPath, newProps, scopeStack)
+			markup, script, style, newScopeStack, newLocalVars, newFence := RecursiveRender(evaluatedCompPath, newProps, scopeStack)
 			// Create scoped classes and add to html
-			markup, scopedElements := scopeHTMLComp(markup, ctrl.dynamicCompProps, fence, newLocalVars)
+			markup, scopedElements := scopeHTMLComp(markup, ctrl.dynamicCompProps, newFence, newLocalVars)
 			// Add scoped classes to css
 			newScopeStack = append(newScopeStack, scopeStackItem{
 				scopedElements: scopedElements,
