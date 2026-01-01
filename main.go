@@ -240,7 +240,7 @@ func scopeHTML(markup string, props map[string]any, localVars map[string]any, fe
 	return markup, scopedElements
 }
 
-func scopeHTMLComp(comp_markup string, props map[string]any, comp_props map[string]any, fence string, localVars map[string]any) (string, []scopedElement) {
+func scopeHTMLComp(comp_markup string, comp_props map[string]any, fence string, localVars map[string]any) (string, []scopedElement) {
 	// We scope components differently than the full document
 	// because html.Parse() builds a full document tree, aka wraps the component in <html><body></body></html>.
 	// This shakes out when getting applied to the existing document tree, but we've scope styles for the html and body elements
@@ -259,7 +259,7 @@ func scopeHTMLComp(comp_markup string, props map[string]any, comp_props map[stri
 	for _, node := range nodes {
 		node, scopedElements = traverse(node, scopedElements, fence)
 
-		if len(comp_props) > 0 {
+		if len(comp_props) > 0 || len(localVars) > 0 {
 			// TODO: What if expected prop isn't passed? Should flattenCompArgs handle? How will it know what's expected?
 			// Currently if comp has default value, SSR renders it. If no default, SSR renders blank
 			// Currently when hydrated, comp has no scope (because comp_props is not > 0) and will get Parent scope (this is incorrect)
@@ -568,20 +568,6 @@ func getLocalVars(fence string, props map[string]any) map[string]any {
 	return localVars
 }
 
-func evaluateProps(fence string, localVars []string, props map[string]any) map[string]any {
-	vm := goja.New()
-	vm.RunString(fence)
-	for _, name := range localVars {
-		evaluated_value := vm.Get(name).Export()
-		if evaluated_value == nil {
-			evaluated_value = ""
-		}
-		props[name] = evaluated_value
-	}
-	return props
-}
-
-// func evalAllBrackets(str string, props map[string]any) string {
 func evalAllBrackets(str string, fence string) string {
 	for {
 		startPos := strings.IndexRune(str, '{')
@@ -596,23 +582,12 @@ func evalAllBrackets(str string, fence string) string {
 	return str
 }
 
-func declProps(props map[string]any) string {
-	props_decl := ""
-	for prop_name, prop_value := range props {
-		props_decl += "let " + prop_name + " = " + anyToString(prop_value) + ";"
-	}
-	return props_decl
-}
-
-// func evalJS(jsCode string, props map[string]any) any {
 func evalJS(jsCode string, fence string) any {
-	//props_decl := declProps(props)
+	// TODO: expensive to create VMs each time, pass in instead
 	vm := goja.New()
-	//goja_value, err := vm.RunString(props_decl + jsCode)
 	goja_value, err := vm.RunString(fence + jsCode)
 	if err != nil {
 		return ""
-		//return jsCode
 	}
 	return goja_value.Export()
 }
@@ -975,8 +950,8 @@ func evalControlTree(controlTree []control, scopeStack []scopeStackItem, props m
 					}
 					newProps[ctrl.forVar] = item
 					markup, newScopeStack := evalControlTree(ctrl.children, scopeStack, newProps, localVars, fence, components)
-					dataStr := "{" + ctrl.forVar + ": " + makeAttrStr(anyToString(item)) + "}"
-					markup, _ = addPScopeAttribute(markup, dataStr)
+					//dataStr := "{" + ctrl.forVar + ": " + makeAttrStr(anyToString(item)) + "}"
+					//markup, _ = addPScopeAttribute(markup, dataStr)
 					markupBuilder.WriteString(markup)
 					scopeStack = newScopeStack
 				}
@@ -995,7 +970,7 @@ func evalControlTree(controlTree []control, scopeStack []scopeStackItem, props m
 			}
 			markup, script, style, newScopeStack, newLocalVars := RecursiveRender(compPath, newProps, scopeStack)
 			// Create scoped classes and add to html
-			markup, scopedElements := scopeHTMLComp(markup, newProps, ctrl.compProps, fence, newLocalVars)
+			markup, scopedElements := scopeHTMLComp(markup, ctrl.compProps, fence, newLocalVars)
 			// Add scoped classes to css
 			newScopeStack = append(newScopeStack, scopeStackItem{
 				scopedElements: scopedElements,
@@ -1013,7 +988,7 @@ func evalControlTree(controlTree []control, scopeStack []scopeStackItem, props m
 			evaluatedCompPath := evalAllBrackets(ctrl.dynamicCompPath, fence)
 			markup, script, style, newScopeStack, newLocalVars := RecursiveRender(evaluatedCompPath, newProps, scopeStack)
 			// Create scoped classes and add to html
-			markup, scopedElements := scopeHTMLComp(markup, newProps, ctrl.dynamicCompProps, fence, newLocalVars)
+			markup, scopedElements := scopeHTMLComp(markup, ctrl.dynamicCompProps, fence, newLocalVars)
 			// Add scoped classes to css
 			newScopeStack = append(newScopeStack, scopeStackItem{
 				scopedElements: scopedElements,
