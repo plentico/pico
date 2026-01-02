@@ -39,21 +39,21 @@ func RecursiveRender(path string, props map[string]any, scopeStack []scopeStackI
 	// Get list of imported components and remove imports from fence
 	fence, components := getComponents(path, fence)
 	// Set the prop to the value that's passed in
-	fence, scopeExp := setProps(fence, props)
+	fence, pScopeExp := setProps(fence, props)
 	// Build AST with {if} and {for} controls + text nodes
 	controlTree, err := buildControlTree(markup)
 	if err != nil {
 		fmt.Println(err)
 	}
-	markup, scopeStack = evalControlTree(controlTree, scopeStack, props, scopeExp, fence, components)
+	markup, scopeStack = evalControlTree(controlTree, scopeStack, props, pScopeExp, fence, components)
 
-	return markup, script, style, scopeStack, scopeExp, fence
+	return markup, script, style, scopeStack, pScopeExp, fence
 }
 
 func Render(path string, props map[string]any) (string, string, string) {
-	markup, script, style, scopeStack, scopeExp, fence := RecursiveRender(path, props, []scopeStackItem{})
+	markup, script, style, scopeStack, pScopeExp, fence := RecursiveRender(path, props, []scopeStackItem{})
 	// Create scoped classes and add to html
-	markup, scopedElements := scopeHTML(markup, props, scopeExp, fence)
+	markup, scopedElements := scopeHTML(markup, props, pScopeExp, fence)
 	scopeStack = append(scopeStack, scopeStackItem{
 		scopedElements: scopedElements,
 		style:          style,
@@ -160,7 +160,7 @@ type scopedElement struct {
 	scopedClass string
 }
 
-func scopeHTML(markup string, props map[string]any, scopeExp string, fence string) (string, []scopedElement) {
+func scopeHTML(markup string, props map[string]any, pScopeExp string, fence string) (string, []scopedElement) {
 	scopedElements := []scopedElement{}
 	node, _ := html.Parse(strings.NewReader(markup))
 
@@ -180,10 +180,10 @@ func scopeHTML(markup string, props map[string]any, scopeExp string, fence strin
 				break
 			}
 		}
-		if scopeExp != "" {
+		if pScopeExp != "" {
 			pScopeAttr := html.Attribute{
 				Key: "p-scope",
-				Val: scopeExp,
+				Val: pScopeExp,
 			}
 			htmlNode.Attr = append(node.Attr, pScopeAttr)
 
@@ -234,7 +234,7 @@ func scopeHTML(markup string, props map[string]any, scopeExp string, fence strin
 	return markup, scopedElements
 }
 
-func scopeHTMLComp(comp_markup string, comp_props map[string]any, fence string, scopeExp string) (string, []scopedElement) {
+func scopeHTMLComp(comp_markup string, comp_props map[string]any, fence string, pScopeExp string) (string, []scopedElement) {
 	// We scope components differently than the full document
 	// because html.Parse() builds a full document tree, aka wraps the component in <html><body></body></html>.
 	// This shakes out when getting applied to the existing document tree, but we've scope styles for the html and body elements
@@ -253,14 +253,10 @@ func scopeHTMLComp(comp_markup string, comp_props map[string]any, fence string, 
 	for _, node := range nodes {
 		node, scopedElements = traverse(node, scopedElements, fence)
 
-		if len(comp_props) > 0 || scopeExp != "" {
-			// TODO: What if expected prop isn't passed? Should flattenCompArgs handle? How will it know what's expected?
-			// Currently if comp has default value, SSR renders it. If no default, SSR renders blank
-			// Currently when hydrated, comp has no scope (because comp_props is not > 0) and will get Parent scope (this is incorrect)
-			// Should be if default value, scope to hardcoded default, if no default scope to undefined? Blank to match SSR?
+		if len(comp_props) > 0 || pScopeExp != "" {
 			attr := html.Attribute{
 				Key: "p-scope",
-				Val: flattenCompArgs(comp_props) + scopeExp,
+				Val: flattenCompArgs(comp_props) + pScopeExp,
 			}
 			node.Attr = append(node.Attr, attr)
 			pID, _ := generateRandom()
@@ -509,16 +505,15 @@ func templateParts(path string) (string, string, string, string) {
 	return markup, fence, script, style
 }
 
+// setProps converts fence to valid JS is used for evaluating and creates p-scope expressions string for modifying data
 func setProps(fence string, props map[string]any) (string, string) {
-	// fence is used for evaluating JS
-	// fence_logic is used for p-scope
-	fence_logic := fence
+	pScopeExp := fence
 
 	for name, value := range props {
 		// For props passed in, find corresponding prop declaration in fence
 		reProp := regexp.MustCompile(fmt.Sprintf(`prop (%s)(\s?=\s?(.*?))?;`, name))
 		// Remove prop since it will live in p-local-data and is not needed in p-scope
-		fence_logic = reProp.ReplaceAllString(fence_logic, "")
+		pScopeExp = reProp.ReplaceAllString(pScopeExp, "")
 		// Add the value passed in via Render()
 		fence = reProp.ReplaceAllString(fence, "let "+name+" = "+anyToString(value)+";")
 	}
@@ -528,15 +523,15 @@ func setProps(fence string, props map[string]any) (string, string) {
 	// Attempt to use default value (if it exists)
 	fence = rePropDefaults.ReplaceAllString(fence, "let $1$2;")
 	// Don't use "let" since p-scope is modification only of existing values
-	fence_logic = rePropDefaults.ReplaceAllString(fence_logic, "$1$2;")
+	pScopeExp = rePropDefaults.ReplaceAllString(pScopeExp, "$1$2;")
 
 	// Find any local var assignments in fence_logic (passed props have already been removed above)
 	reLocalVars := regexp.MustCompile(`(?:let|const|var)\s([a-zA-Z_$]*)(\s?=\s?(.*?))?;`)
 	// Remove let/const/var keywords because p-scope only modifies existing values
-	fence_logic = reLocalVars.ReplaceAllString(fence_logic, "$1$2;")
+	pScopeExp = reLocalVars.ReplaceAllString(pScopeExp, "$1$2;")
 
-	fence_logic = makeAttrStr(fence_logic)
-	return fence, fence_logic
+	pScopeExp = makeAttrStr(pScopeExp)
+	return fence, pScopeExp
 }
 
 func makeAttrStr(str string) string {
@@ -549,29 +544,6 @@ func makeAttrStr(str string) string {
 	str = strings.ReplaceAll(str, "\"", "'")  // change double quotes to single
 
 	return str
-}
-
-func getLocalVars(fence string) string {
-	var sb strings.Builder
-	var localVars string
-	reAllVars := regexp.MustCompile(`(?m)^\s*(?:(?:let|const|var)\s+)?(?P<name>[a-zA-Z_$][\w$]*(?:\.[a-zA-Z_$][\w$]*)*)\s*(?P<operator>(?:[+*/%&|^-]|<<|>>|>>>)?=|\+\+|--)\s*(?P<value>.*?);`)
-	nameIndex := reAllVars.SubexpIndex("name")
-	valueIndex := reAllVars.SubexpIndex("value")
-	matches := reAllVars.FindAllStringSubmatch(fence, -1)
-	for i, currentVar := range matches {
-		if i > 0 {
-			sb.WriteString(" ")
-		}
-		name := currentVar[nameIndex]
-		value := currentVar[valueIndex]
-
-		sb.WriteString(name)
-		sb.WriteString(" = ")
-		sb.WriteString(makeAttrStr(value))
-		sb.WriteString(";")
-		localVars += name + " = " + makeAttrStr(value) + ";"
-	}
-	return localVars
 }
 
 func evalAllBrackets(str string, fence string) string {
@@ -910,7 +882,7 @@ func addPScopeAttribute(htmlStr string, dataStr string) (string, error) {
 	return buf.String(), nil
 }
 
-func evalControlTree(controlTree []control, scopeStack []scopeStackItem, props map[string]any, scopeExp string, fence string, components []Component) (string, []scopeStackItem) {
+func evalControlTree(controlTree []control, scopeStack []scopeStackItem, props map[string]any, pScopeExp string, fence string, components []Component) (string, []scopeStackItem) {
 	var markupBuilder strings.Builder
 
 	for _, ctrl := range controlTree {
@@ -918,7 +890,7 @@ func evalControlTree(controlTree []control, scopeStack []scopeStackItem, props m
 			markupBuilder.WriteString(ctrl.textContent)
 		} else if ctrl.isIfStmt {
 			if isBoolAndTrue(evalJS(ctrl.ifCondition, fence)) {
-				markup, newScopeStack := evalControlTree(ctrl.children, scopeStack, props, scopeExp, fence, components)
+				markup, newScopeStack := evalControlTree(ctrl.children, scopeStack, props, pScopeExp, fence, components)
 				markupBuilder.WriteString(markup)
 				scopeStack = newScopeStack
 			} else {
@@ -926,7 +898,7 @@ func evalControlTree(controlTree []control, scopeStack []scopeStackItem, props m
 				// Process else-if statements
 				for _, child := range ctrl.children {
 					if child.isElseIfStmt && isBoolAndTrue(evalJS(child.elseIfCondition, fence)) {
-						markup, newScopeStack := evalControlTree(child.children, scopeStack, props, scopeExp, fence, components)
+						markup, newScopeStack := evalControlTree(child.children, scopeStack, props, pScopeExp, fence, components)
 						markupBuilder.WriteString(markup)
 						scopeStack = newScopeStack
 						evaluated = true
@@ -937,7 +909,7 @@ func evalControlTree(controlTree []control, scopeStack []scopeStackItem, props m
 				if !evaluated {
 					for _, child := range ctrl.children {
 						if child.isElseStmt {
-							markup, newScopeStack := evalControlTree(child.children, scopeStack, props, scopeExp, fence, components)
+							markup, newScopeStack := evalControlTree(child.children, scopeStack, props, pScopeExp, fence, components)
 							markupBuilder.WriteString(markup)
 							scopeStack = newScopeStack
 							break
@@ -955,7 +927,7 @@ func evalControlTree(controlTree []control, scopeStack []scopeStackItem, props m
 						newProps[k] = v
 					}
 					newProps[ctrl.forVar] = item
-					markup, newScopeStack := evalControlTree(ctrl.children, scopeStack, newProps, scopeExp, fence, components)
+					markup, newScopeStack := evalControlTree(ctrl.children, scopeStack, newProps, pScopeExp, fence, components)
 					//dataStr := "{" + ctrl.forVar + ": " + makeAttrStr(anyToString(item)) + "}"
 					//markup, _ = addPScopeAttribute(markup, dataStr)
 					markupBuilder.WriteString(markup)
@@ -974,9 +946,9 @@ func evalControlTree(controlTree []control, scopeStack []scopeStackItem, props m
 					compPath = comp.Path
 				}
 			}
-			markup, script, style, newScopeStack, newScopeExp, newFence := RecursiveRender(compPath, newProps, scopeStack)
+			markup, script, style, newScopeStack, newPScopeExp, newFence := RecursiveRender(compPath, newProps, scopeStack)
 			// Create scoped classes and add to html
-			markup, scopedElements := scopeHTMLComp(markup, ctrl.compProps, newFence, newScopeExp)
+			markup, scopedElements := scopeHTMLComp(markup, ctrl.compProps, newFence, newPScopeExp)
 			// Add scoped classes to css
 			newScopeStack = append(newScopeStack, scopeStackItem{
 				scopedElements: scopedElements,
@@ -992,9 +964,9 @@ func evalControlTree(controlTree []control, scopeStack []scopeStackItem, props m
 				newProps[prop_name] = evalJS(fmt.Sprintf(`%s`, prop_value), fence)
 			}
 			evaluatedCompPath := evalAllBrackets(ctrl.dynamicCompPath, fence)
-			markup, script, style, newScopeStack, newScopeExp, newFence := RecursiveRender(evaluatedCompPath, newProps, scopeStack)
+			markup, script, style, newScopeStack, newPScopeExp, newFence := RecursiveRender(evaluatedCompPath, newProps, scopeStack)
 			// Create scoped classes and add to html
-			markup, scopedElements := scopeHTMLComp(markup, ctrl.dynamicCompProps, newFence, newScopeExp)
+			markup, scopedElements := scopeHTMLComp(markup, ctrl.dynamicCompProps, newFence, newPScopeExp)
 			// Add scoped classes to css
 			newScopeStack = append(newScopeStack, scopeStackItem{
 				scopedElements: scopedElements,
@@ -1165,8 +1137,8 @@ func copyFile(sourcePath, destPath string) {
 
 func main() {
 	// Render the template with data
-	props := map[string]any{"name": "Ja", "age": 2, "animals": []string{"cat", "dog", "pig"}}
-	//props := map[string]any{"name": "Ja", "age": 2, "animals": []string{"cat", "dog", "pig"}, "test": "sup"}
+	//props := map[string]any{"name": "Ja", "age": 2, "animals": []string{"cat", "dog", "pig"}}
+	props := map[string]any{"name": "Ja", "age": 2, "animals": []string{"cat", "dog", "pig"}, "test": "sup"}
 	markup, script, style := Render("views/home.html", props)
 	os.MkdirAll("./public", os.ModePerm)
 	os.WriteFile("./public/script.js", []byte(script), fs.ModePerm)
