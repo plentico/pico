@@ -38,12 +38,8 @@ func RecursiveRender(path string, props map[string]any, scopeStack []scopeStackI
 	markup, fence, script, style := templateParts(path)
 	// Get list of imported components and remove imports from fence
 	fence, components := getComponents(path, fence)
-	// Get list of all variables declared in fence
-	localVars := getLocalVars(fence)
 	// Set the prop to the value that's passed in
-	fence, unpassedPropDefaults := setProps(fence, props)
-	// Merge defaults and local assignments
-	scopeExp := unpassedPropDefaults + localVars
+	fence, scopeExp := setProps(fence, props)
 	// Build AST with {if} and {for} controls + text nodes
 	controlTree, err := buildControlTree(markup)
 	if err != nil {
@@ -514,26 +510,33 @@ func templateParts(path string) (string, string, string, string) {
 }
 
 func setProps(fence string, props map[string]any) (string, string) {
+	// fence is used for evaluating JS
+	// fence_logic is used for p-scope
+	fence_logic := fence
+
 	for name, value := range props {
+		// For props passed in, find corresponding prop declaration in fence
 		reProp := regexp.MustCompile(fmt.Sprintf(`prop (%s)(\s?=\s?(.*?))?;`, name))
+		// Remove prop since it will live in p-local-data and is not needed in p-scope
+		fence_logic = reProp.ReplaceAllString(fence_logic, "")
+		// Add the value passed in via Render()
 		fence = reProp.ReplaceAllString(fence, "let "+name+" = "+anyToString(value)+";")
 	}
 
-	var unpassedPropDefaults string
+	// Any prop not found above, will be caught here (unpassed props)
 	rePropDefaults := regexp.MustCompile(`prop\s([a-zA-Z_$]*)(\s?=\s?(.*?))?;`)
-	// Only matches unpassed props, since found props were converted in fence above
-	matches := rePropDefaults.FindAllStringSubmatch(fence, -1)
-	for _, match := range matches {
-		name := match[1]
-		// note group 2 is the full " = whatever"
-		value := match[3] // This will be empty string if no "=" exists
-		if value != "" {
-			unpassedPropDefaults += name + " = " + makeAttrStr(value) + ";"
-		}
-	}
+	// Attempt to use default value (if it exists)
 	fence = rePropDefaults.ReplaceAllString(fence, "let $1$2;")
+	// Don't use "let" since p-scope is modification only of existing values
+	fence_logic = rePropDefaults.ReplaceAllString(fence_logic, "$1$2;")
 
-	return fence, unpassedPropDefaults
+	// Find any local var assignments in fence_logic (passed props have already been removed above)
+	reLocalVars := regexp.MustCompile(`(?:let|const|var)\s([a-zA-Z_$]*)(\s?=\s?(.*?))?;`)
+	// Remove let/const/var keywords because p-scope only modifies existing values
+	fence_logic = reLocalVars.ReplaceAllString(fence_logic, "$1$2;")
+
+	fence_logic = makeAttrStr(fence_logic)
+	return fence, fence_logic
 }
 
 func makeAttrStr(str string) string {
@@ -549,14 +552,23 @@ func makeAttrStr(str string) string {
 }
 
 func getLocalVars(fence string) string {
+	var sb strings.Builder
 	var localVars string
 	reAllVars := regexp.MustCompile(`(?m)^\s*(?:(?:let|const|var)\s+)?(?P<name>[a-zA-Z_$][\w$]*(?:\.[a-zA-Z_$][\w$]*)*)\s*(?P<operator>(?:[+*/%&|^-]|<<|>>|>>>)?=|\+\+|--)\s*(?P<value>.*?);`)
 	nameIndex := reAllVars.SubexpIndex("name")
 	valueIndex := reAllVars.SubexpIndex("value")
 	matches := reAllVars.FindAllStringSubmatch(fence, -1)
-	for _, currentVar := range matches {
+	for i, currentVar := range matches {
+		if i > 0 {
+			sb.WriteString(" ")
+		}
 		name := currentVar[nameIndex]
 		value := currentVar[valueIndex]
+
+		sb.WriteString(name)
+		sb.WriteString(" = ")
+		sb.WriteString(makeAttrStr(value))
+		sb.WriteString(";")
 		localVars += name + " = " + makeAttrStr(value) + ";"
 	}
 	return localVars
