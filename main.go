@@ -160,82 +160,6 @@ type scopedElement struct {
 	scopedClass string
 }
 
-/*
-func scopeHTML(markup string, props map[string]any, pScopeExp string, fence string) (string, []scopedElement) {
-	scopedElements := []scopedElement{}
-	node, _ := html.Parse(strings.NewReader(markup))
-
-	var htmlNode *html.Node
-	for c := node.FirstChild; c != nil; c = c.NextSibling {
-		if c.Type == html.ElementNode && c.Data == "html" {
-			htmlNode = c
-			break
-		}
-	}
-
-	var headNode *html.Node
-	if htmlNode != nil {
-		for c := htmlNode.FirstChild; c != nil; c = c.NextSibling {
-			if c.Type == html.ElementNode && c.Data == "head" {
-				headNode = c
-				break
-			}
-		}
-		if pScopeExp != "" {
-			pScopeAttr := html.Attribute{
-				Key: "p-scope",
-				Val: pScopeExp,
-			}
-			htmlNode.Attr = append(node.Attr, pScopeAttr)
-
-			pID, _ := generateRandom()
-			pIDAttr := html.Attribute{
-				Key: "p-id",
-				Val: pID,
-			}
-			htmlNode.Attr = append(htmlNode.Attr, pIDAttr)
-		}
-	}
-
-	if headNode != nil {
-		if len(props) > 0 {
-			rootData, _ := json.Marshal(props)
-			rootDataScript := &html.Node{
-				Type: html.ElementNode,
-				Data: "script",
-				Attr: []html.Attribute{
-					{Key: "id", Val: "p-root-data"},
-					{Key: "type", Val: "application/json"},
-				},
-			}
-			rootDataScript.AppendChild(&html.Node{
-				Type: html.TextNode,
-				Data: string(rootData),
-			})
-
-			// Insert at the very beginning of <head>
-			if headNode.FirstChild != nil {
-				headNode.InsertBefore(rootDataScript, headNode.FirstChild)
-			} else {
-				headNode.AppendChild(rootDataScript)
-			}
-		}
-	}
-
-	node, scopedElements = traverse(node, scopedElements, fence)
-
-	// Render the modified HTML back to a string
-	buf := &strings.Builder{}
-	err := html.Render(buf, node)
-	if err != nil {
-		log.Fatal(err)
-	}
-	markup = html.UnescapeString(buf.String())
-
-	return markup, scopedElements
-}
-*/
-
 func parseWithoutCorrection(input string) ([]*html.Node, error) {
 	var nodes []*html.Node
 	z := html.NewTokenizer(strings.NewReader(input))
@@ -354,132 +278,6 @@ func isVoidElement(a atom.Atom) bool {
 	}
 }
 
-/*
-// Custom render function that outputs nodes exactly as they are, without auto-correction
-func renderNode(n *html.Node, w *strings.Builder) {
-	switch n.Type {
-	case html.TextNode:
-		w.WriteString(n.Data)
-	case html.ElementNode:
-		w.WriteString("<")
-		w.WriteString(n.Data)
-		for _, attr := range n.Attr {
-			w.WriteString(" ")
-			w.WriteString(attr.Key)
-			if attr.Val != "" {
-				w.WriteString(`="`)
-				w.WriteString(html.EscapeString(attr.Val))
-				w.WriteString(`"`)
-			}
-		}
-		if isVoidElement(n.DataAtom) && n.FirstChild == nil {
-			w.WriteString(">")
-		} else {
-			w.WriteString(">")
-			for c := n.FirstChild; c != nil; c = c.NextSibling {
-				renderNode(c, w)
-			}
-			w.WriteString("</")
-			w.WriteString(n.Data)
-			w.WriteString(">")
-		}
-	case html.CommentNode:
-		w.WriteString("<!--")
-		w.WriteString(n.Data)
-		w.WriteString("-->")
-	case html.DoctypeNode:
-		w.WriteString("<!DOCTYPE ")
-		w.WriteString(n.Data)
-		w.WriteString(">")
-	}
-}
-
-func scopeHTML(markup string, props map[string]any, pScopeExp string, fence string) (string, []scopedElement) {
-	scopedElements := []scopedElement{}
-
-	nodes, err := parseWithoutCorrection(markup)
-	if err != nil {
-		fmt.Println(nodes)
-		// handle error
-		return markup, scopedElements
-	}
-
-	// Case 1: Full document → exactly one root <html>
-	if len(nodes) > 0 && nodes[0].Type == html.ElementNode && nodes[0].Data == "html" {
-		htmlNode := nodes[0]
-
-		// Add scope to <html> if needed
-		if pScopeExp != "" {
-			htmlNode.Attr = append(htmlNode.Attr, html.Attribute{Key: "p-scope", Val: pScopeExp})
-			pID, _ := generateRandom()
-			htmlNode.Attr = append(htmlNode.Attr, html.Attribute{Key: "p-id", Val: pID})
-		}
-
-		// Find <head> and insert root props script at the beginning
-		if len(props) > 0 {
-			rootData, _ := json.Marshal(props)
-			script := &html.Node{
-				Type: html.ElementNode,
-				Data: "script",
-				Attr: []html.Attribute{
-					{Key: "id", Val: "p-root-data"},
-					{Key: "type", Val: "application/json"},
-				},
-			}
-			script.AppendChild(&html.Node{Type: html.TextNode, Data: string(rootData)})
-
-			var head *html.Node
-			for c := htmlNode.FirstChild; c != nil; c = c.NextSibling {
-				if c.Type == html.ElementNode && c.Data == "head" {
-					head = c
-					break
-				}
-			}
-
-			if head != nil {
-				// Insert at beginning of head
-				if head.FirstChild != nil {
-					head.InsertBefore(script, head.FirstChild)
-				} else {
-					head.AppendChild(script)
-				}
-			}
-		}
-
-		// Traverse the whole document tree (adds scope to all elements)
-		traverse(htmlNode, scopedElements, fence)
-
-		// Render the whole thing using custom renderer
-		var buf strings.Builder
-		renderNode(htmlNode, &buf)
-		return html.UnescapeString(buf.String()), scopedElements
-	}
-
-	// Case 2: Fragment → multiple top-level nodes (no <html>)
-	//var buf strings.Builder
-	var fragments []string
-
-	for _, node := range nodes {
-		// Skip pure whitespace text nodes (common source of garbage)
-		if node.Type == html.TextNode && strings.TrimSpace(node.Data) == "" {
-			continue
-		}
-
-		// Add scope to every element in this fragment
-		traverse(node, scopedElements, fence)
-
-		// Use custom renderer
-		//renderNode(node, &buf)
-		var buf strings.Builder
-		html.Render(&buf, node)
-		fragments = append(fragments, html.UnescapeString(buf.String()))
-	}
-
-	//return html.UnescapeString(buf.String()), scopedElements
-	return strings.Join(fragments, ""), scopedElements
-}
-*/
-
 func scopeHTML(markup string, props map[string]any, pScopeExp string, fence string) (string, []scopedElement) {
 	scopedElements := []scopedElement{}
 	fragments := []string{}
@@ -491,18 +289,9 @@ func scopeHTML(markup string, props map[string]any, pScopeExp string, fence stri
 	for _, node := range nodes {
 		if node.Type == html.ElementNode && node.Data == "html" {
 			if pScopeExp != "" {
-				pScopeAttr := html.Attribute{
-					Key: "p-scope",
-					Val: pScopeExp,
-				}
-				node.Attr = append(node.Attr, pScopeAttr)
-
+				node.Attr = append(node.Attr, html.Attribute{Key: "p-scope", Val: pScopeExp})
 				pID, _ := generateRandom()
-				pIDAttr := html.Attribute{
-					Key: "p-id",
-					Val: pID,
-				}
-				node.Attr = append(node.Attr, pIDAttr)
+				node.Attr = append(node.Attr, html.Attribute{Key: "p-id", Val: pID})
 			}
 			for c := node.FirstChild; c != nil; c = c.NextSibling {
 				if c.Type == html.ElementNode && c.Data == "head" {
