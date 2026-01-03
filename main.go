@@ -160,6 +160,7 @@ type scopedElement struct {
 	scopedClass string
 }
 
+/*
 func scopeHTML(markup string, props map[string]any, pScopeExp string, fence string) (string, []scopedElement) {
 	scopedElements := []scopedElement{}
 	node, _ := html.Parse(strings.NewReader(markup))
@@ -233,6 +234,7 @@ func scopeHTML(markup string, props map[string]any, pScopeExp string, fence stri
 
 	return markup, scopedElements
 }
+*/
 
 func parseWithoutCorrection(input string) ([]*html.Node, error) {
 	var nodes []*html.Node
@@ -287,7 +289,7 @@ func parseWithoutCorrection(input string) ([]*html.Node, error) {
 			}
 			// else: mismatched → you can ignore (no auto-correction)
 
-		case html.TextToken, html.CommentToken, html.DoctypeToken:
+		case html.TextToken:
 			token := z.Token()
 			node := &html.Node{
 				Type: html.TextNode,
@@ -307,6 +309,35 @@ func parseWithoutCorrection(input string) ([]*html.Node, error) {
 			} else {
 				nodes = append(nodes, node)
 			}
+
+		case html.CommentToken:
+			token := z.Token()
+			node := &html.Node{
+				Type: html.CommentNode,
+				Data: string(token.Data),
+			}
+			if len(stack) > 0 {
+				parent := stack[len(stack)-1]
+				if parent.LastChild == nil {
+					parent.FirstChild = node
+				} else {
+					parent.LastChild.NextSibling = node
+				}
+				node.PrevSibling = parent.LastChild
+				parent.LastChild = node
+				node.Parent = parent
+			} else {
+				nodes = append(nodes, node)
+			}
+
+		case html.DoctypeToken:
+			token := z.Token()
+			node := &html.Node{
+				Type: html.DoctypeNode,
+				Data: string(token.Data),
+			}
+			// DOCTYPE should be at the root level only
+			nodes = append(nodes, node)
 		}
 	}
 }
@@ -323,40 +354,188 @@ func isVoidElement(a atom.Atom) bool {
 	}
 }
 
-func scopeHTMLComp(comp_markup string, comp_props map[string]any, fence string, pScopeExp string) (string, []scopedElement) {
-	// We scope components differently than the full document
-	// because html.Parse() builds a full document tree, aka wraps the component in <html><body></body></html>.
-	// This shakes out when getting applied to the existing document tree, but we've scope styles for the html and body elements
-	// To avoid scoped class conflicts, using html.ParseFragment() returns just the HTML for the component
-	// Separating scopeHTML and scopeHTMLComp allows us to do both (avoid preemptively scoping html/body on comps, but do it on the doc entrypoint)
-	// Related resources:
-	// https://stackoverflow.com/questions/15081119/any-way-to-use-html-parse-without-it-adding-nodes-to-make-a-well-formed-tree
-	// https://nikodoko.com/posts/html-table-parsing/
+/*
+// Custom render function that outputs nodes exactly as they are, without auto-correction
+func renderNode(n *html.Node, w *strings.Builder) {
+	switch n.Type {
+	case html.TextNode:
+		w.WriteString(n.Data)
+	case html.ElementNode:
+		w.WriteString("<")
+		w.WriteString(n.Data)
+		for _, attr := range n.Attr {
+			w.WriteString(" ")
+			w.WriteString(attr.Key)
+			if attr.Val != "" {
+				w.WriteString(`="`)
+				w.WriteString(html.EscapeString(attr.Val))
+				w.WriteString(`"`)
+			}
+		}
+		if isVoidElement(n.DataAtom) && n.FirstChild == nil {
+			w.WriteString(">")
+		} else {
+			w.WriteString(">")
+			for c := n.FirstChild; c != nil; c = c.NextSibling {
+				renderNode(c, w)
+			}
+			w.WriteString("</")
+			w.WriteString(n.Data)
+			w.WriteString(">")
+		}
+	case html.CommentNode:
+		w.WriteString("<!--")
+		w.WriteString(n.Data)
+		w.WriteString("-->")
+	case html.DoctypeNode:
+		w.WriteString("<!DOCTYPE ")
+		w.WriteString(n.Data)
+		w.WriteString(">")
+	}
+}
+
+func scopeHTML(markup string, props map[string]any, pScopeExp string, fence string) (string, []scopedElement) {
+	scopedElements := []scopedElement{}
+
+	nodes, err := parseWithoutCorrection(markup)
+	if err != nil {
+		fmt.Println(nodes)
+		// handle error
+		return markup, scopedElements
+	}
+
+	// Case 1: Full document → exactly one root <html>
+	if len(nodes) > 0 && nodes[0].Type == html.ElementNode && nodes[0].Data == "html" {
+		htmlNode := nodes[0]
+
+		// Add scope to <html> if needed
+		if pScopeExp != "" {
+			htmlNode.Attr = append(htmlNode.Attr, html.Attribute{Key: "p-scope", Val: pScopeExp})
+			pID, _ := generateRandom()
+			htmlNode.Attr = append(htmlNode.Attr, html.Attribute{Key: "p-id", Val: pID})
+		}
+
+		// Find <head> and insert root props script at the beginning
+		if len(props) > 0 {
+			rootData, _ := json.Marshal(props)
+			script := &html.Node{
+				Type: html.ElementNode,
+				Data: "script",
+				Attr: []html.Attribute{
+					{Key: "id", Val: "p-root-data"},
+					{Key: "type", Val: "application/json"},
+				},
+			}
+			script.AppendChild(&html.Node{Type: html.TextNode, Data: string(rootData)})
+
+			var head *html.Node
+			for c := htmlNode.FirstChild; c != nil; c = c.NextSibling {
+				if c.Type == html.ElementNode && c.Data == "head" {
+					head = c
+					break
+				}
+			}
+
+			if head != nil {
+				// Insert at beginning of head
+				if head.FirstChild != nil {
+					head.InsertBefore(script, head.FirstChild)
+				} else {
+					head.AppendChild(script)
+				}
+			}
+		}
+
+		// Traverse the whole document tree (adds scope to all elements)
+		traverse(htmlNode, scopedElements, fence)
+
+		// Render the whole thing using custom renderer
+		var buf strings.Builder
+		renderNode(htmlNode, &buf)
+		return html.UnescapeString(buf.String()), scopedElements
+	}
+
+	// Case 2: Fragment → multiple top-level nodes (no <html>)
+	//var buf strings.Builder
+	var fragments []string
+
+	for _, node := range nodes {
+		// Skip pure whitespace text nodes (common source of garbage)
+		if node.Type == html.TextNode && strings.TrimSpace(node.Data) == "" {
+			continue
+		}
+
+		// Add scope to every element in this fragment
+		traverse(node, scopedElements, fence)
+
+		// Use custom renderer
+		//renderNode(node, &buf)
+		var buf strings.Builder
+		html.Render(&buf, node)
+		fragments = append(fragments, html.UnescapeString(buf.String()))
+	}
+
+	//return html.UnescapeString(buf.String()), scopedElements
+	return strings.Join(fragments, ""), scopedElements
+}
+*/
+
+func scopeHTML(markup string, props map[string]any, pScopeExp string, fence string) (string, []scopedElement) {
 	scopedElements := []scopedElement{}
 	fragments := []string{}
-	/*
-		nodes, _ := html.ParseFragment(strings.NewReader(comp_markup), &html.Node{
-			Type:     html.ElementNode,
-			Data:     "body",
-			DataAtom: atom.Body,
-		})
-	*/
-	nodes, err := parseWithoutCorrection(comp_markup)
+	nodes, err := parseWithoutCorrection(markup)
 	if err != nil {
-		fmt.Println("Error:", err)
+		fmt.Println("HTML Parsing Error:", err)
 	}
-	fmt.Println(comp_markup)
-	for _, node := range nodes {
 
-		if node.Type == html.ElementNode && len(comp_props) > 0 || pScopeExp != "" {
-			fmt.Println(node.Type)
-			fmt.Println(node.Data)
-			fmt.Println(comp_props)
-			fmt.Println(pScopeExp)
-			fmt.Println("===========")
+	for _, node := range nodes {
+		if node.Type == html.ElementNode && node.Data == "html" {
+			if pScopeExp != "" {
+				pScopeAttr := html.Attribute{
+					Key: "p-scope",
+					Val: pScopeExp,
+				}
+				node.Attr = append(node.Attr, pScopeAttr)
+
+				pID, _ := generateRandom()
+				pIDAttr := html.Attribute{
+					Key: "p-id",
+					Val: pID,
+				}
+				node.Attr = append(node.Attr, pIDAttr)
+			}
+			for c := node.FirstChild; c != nil; c = c.NextSibling {
+				if c.Type == html.ElementNode && c.Data == "head" {
+					if len(props) > 0 {
+						rootData, _ := json.Marshal(props)
+						rootDataScript := &html.Node{
+							Type: html.ElementNode,
+							Data: "script",
+							Attr: []html.Attribute{
+								{Key: "id", Val: "p-root-data"},
+								{Key: "type", Val: "application/json"},
+							},
+						}
+						rootDataScript.AppendChild(&html.Node{
+							Type: html.TextNode,
+							Data: string(rootData),
+						})
+
+						// Insert at the very beginning of <head>
+						if node.FirstChild != nil {
+							node.InsertBefore(rootDataScript, node.FirstChild)
+						} else {
+							node.AppendChild(rootDataScript)
+						}
+					}
+				}
+			}
+		}
+
+		if node.Type == html.ElementNode && len(props) > 0 || pScopeExp != "" {
 			attr := html.Attribute{
 				Key: "p-scope",
-				Val: flattenCompArgs(comp_props) + pScopeExp,
+				Val: flattenCompArgs(props) + pScopeExp,
 			}
 			node.Attr = append(node.Attr, attr)
 			pID, _ := generateRandom()
@@ -376,12 +555,12 @@ func scopeHTMLComp(comp_markup string, comp_props map[string]any, fence string, 
 		}
 		fragments = append(fragments, html.UnescapeString(buf.String()))
 	}
-	comp_markup = ""
+	markup = ""
 	for _, f := range fragments {
-		comp_markup = comp_markup + f
+		markup = markup + f
 	}
 
-	return comp_markup, scopedElements
+	return markup, scopedElements
 }
 
 func traverse(node *html.Node, scopedElements []scopedElement, fence string) (*html.Node, []scopedElement) {
@@ -1050,7 +1229,7 @@ func evalControlTree(controlTree []control, scopeStack []scopeStackItem, props m
 			}
 			markup, script, style, newScopeStack, newPScopeExp, newFence := RecursiveRender(compPath, newProps, scopeStack)
 			// Create scoped classes and add to html
-			markup, scopedElements := scopeHTMLComp(markup, ctrl.compProps, newFence, newPScopeExp)
+			markup, scopedElements := scopeHTML(markup, ctrl.compProps, newPScopeExp, newFence)
 			// Add scoped classes to css
 			newScopeStack = append(newScopeStack, scopeStackItem{
 				scopedElements: scopedElements,
@@ -1068,7 +1247,7 @@ func evalControlTree(controlTree []control, scopeStack []scopeStackItem, props m
 			evaluatedCompPath := evalAllBrackets(ctrl.dynamicCompPath, fence)
 			markup, script, style, newScopeStack, newPScopeExp, newFence := RecursiveRender(evaluatedCompPath, newProps, scopeStack)
 			// Create scoped classes and add to html
-			markup, scopedElements := scopeHTMLComp(markup, ctrl.dynamicCompProps, newFence, newPScopeExp)
+			markup, scopedElements := scopeHTML(markup, ctrl.dynamicCompProps, newPScopeExp, newFence)
 			// Add scoped classes to css
 			newScopeStack = append(newScopeStack, scopeStackItem{
 				scopedElements: scopedElements,
