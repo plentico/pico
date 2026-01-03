@@ -288,11 +288,6 @@ func scopeHTML(markup string, props map[string]any, pScopeExp string, fence stri
 
 	for _, node := range nodes {
 		if node.Type == html.ElementNode && node.Data == "html" {
-			if pScopeExp != "" {
-				node.Attr = append(node.Attr, html.Attribute{Key: "p-scope", Val: pScopeExp})
-				pID, _ := generateRandom()
-				node.Attr = append(node.Attr, html.Attribute{Key: "p-id", Val: pID})
-			}
 			for c := node.FirstChild; c != nil; c = c.NextSibling {
 				if c.Type == html.ElementNode && c.Data == "head" {
 					if len(props) > 0 {
@@ -321,18 +316,15 @@ func scopeHTML(markup string, props map[string]any, pScopeExp string, fence stri
 			}
 		}
 
-		if node.Type == html.ElementNode && len(props) > 0 || pScopeExp != "" {
-			attr := html.Attribute{
-				Key: "p-scope",
-				Val: flattenCompArgs(props) + pScopeExp,
+		if node.Type == html.ElementNode && (len(props) > 0 || pScopeExp != "") {
+			if node.Data != "html" {
+				// Add args passed into the comp (which may be expressions)
+				// Top-level HTML doesn't have expressions passed in, only raw values
+				pScopeExp = flattenCompArgs(props) + pScopeExp
 			}
-			node.Attr = append(node.Attr, attr)
+			node.Attr = append(node.Attr, html.Attribute{Key: "p-scope", Val: pScopeExp})
 			pID, _ := generateRandom()
-			pIDAttr := html.Attribute{
-				Key: "p-id",
-				Val: pID,
-			}
-			node.Attr = append(node.Attr, pIDAttr)
+			node.Attr = append(node.Attr, html.Attribute{Key: "p-id", Val: pID})
 		}
 
 		node, scopedElements = traverse(node, scopedElements, fence)
