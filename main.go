@@ -234,6 +234,95 @@ func scopeHTML(markup string, props map[string]any, pScopeExp string, fence stri
 	return markup, scopedElements
 }
 
+func parseWithoutCorrection(input string) ([]*html.Node, error) {
+	var nodes []*html.Node
+	z := html.NewTokenizer(strings.NewReader(input))
+
+	var stack []*html.Node
+	for {
+		tt := z.Next()
+		switch tt {
+		case html.ErrorToken:
+			err := z.Err()
+			if err == io.EOF {
+				return nodes, nil
+			}
+			return nil, err
+
+		case html.StartTagToken, html.SelfClosingTagToken:
+			token := z.Token()
+			node := &html.Node{
+				Type:     html.ElementNode,
+				DataAtom: token.DataAtom,
+				Data:     token.Data,
+				Attr:     token.Attr,
+			}
+
+			if len(stack) > 0 {
+				parent := stack[len(stack)-1]
+				if parent.LastChild == nil {
+					parent.FirstChild = node
+				} else {
+					parent.LastChild.NextSibling = node
+				}
+				node.PrevSibling = parent.LastChild
+				parent.LastChild = node
+				node.Parent = parent
+			} else {
+				nodes = append(nodes, node)
+			}
+
+			if token.Type != html.SelfClosingTagToken && !isVoidElement(token.DataAtom) {
+				stack = append(stack, node)
+			}
+
+		case html.EndTagToken:
+			token := z.Token()
+			if len(stack) == 0 {
+				// orphan end tag → ignore or handle
+				continue
+			}
+			if stack[len(stack)-1].Data == token.Data {
+				stack = stack[:len(stack)-1]
+			}
+			// else: mismatched → you can ignore (no auto-correction)
+
+		case html.TextToken, html.CommentToken, html.DoctypeToken:
+			token := z.Token()
+			node := &html.Node{
+				Type: html.TextNode,
+				Data: string(token.Data),
+			}
+			if len(stack) > 0 {
+				parent := stack[len(stack)-1]
+				// append as child
+				if parent.LastChild == nil {
+					parent.FirstChild = node
+				} else {
+					parent.LastChild.NextSibling = node
+				}
+				node.PrevSibling = parent.LastChild
+				parent.LastChild = node
+				node.Parent = parent
+			} else {
+				nodes = append(nodes, node)
+			}
+		}
+	}
+}
+
+// Simple void elements check (you can expand this)
+func isVoidElement(a atom.Atom) bool {
+	switch a {
+	case atom.Area, atom.Base, atom.Br, atom.Col, atom.Command,
+		atom.Embed, atom.Hr, atom.Img, atom.Input, atom.Keygen,
+		atom.Link, atom.Meta, atom.Param, atom.Source, atom.Track, atom.Wbr:
+		return true
+	default:
+		return false
+	}
+}
+
 func scopeHTMLComp(comp_markup string, comp_props map[string]any, fence string, pScopeExp string) (string, []scopedElement) {
 	// We scope components differently than the full document
 	// because html.Parse() builds a full document tree, aka wraps the component in <html><body></body></html>.
@@ -245,15 +334,26 @@ func scopeHTMLComp(comp_markup string, comp_props map[string]any, fence string, 
 	// https://nikodoko.com/posts/html-table-parsing/
 	scopedElements := []scopedElement{}
 	fragments := []string{}
-	nodes, _ := html.ParseFragment(strings.NewReader(comp_markup), &html.Node{
-		Type:     html.ElementNode,
-		Data:     "body",
-		DataAtom: atom.Body,
-	})
+	/*
+		nodes, _ := html.ParseFragment(strings.NewReader(comp_markup), &html.Node{
+			Type:     html.ElementNode,
+			Data:     "body",
+			DataAtom: atom.Body,
+		})
+	*/
+	nodes, err := parseWithoutCorrection(comp_markup)
+	if err != nil {
+		fmt.Println("Error:", err)
+	}
+	fmt.Println(comp_markup)
 	for _, node := range nodes {
-		node, scopedElements = traverse(node, scopedElements, fence)
 
-		if len(comp_props) > 0 || pScopeExp != "" {
+		if node.Type == html.ElementNode && len(comp_props) > 0 || pScopeExp != "" {
+			fmt.Println(node.Type)
+			fmt.Println(node.Data)
+			fmt.Println(comp_props)
+			fmt.Println(pScopeExp)
+			fmt.Println("===========")
 			attr := html.Attribute{
 				Key: "p-scope",
 				Val: flattenCompArgs(comp_props) + pScopeExp,
@@ -266,6 +366,8 @@ func scopeHTMLComp(comp_markup string, comp_props map[string]any, fence string, 
 			}
 			node.Attr = append(node.Attr, pIDAttr)
 		}
+
+		node, scopedElements = traverse(node, scopedElements, fence)
 
 		buf := &strings.Builder{}
 		err := html.Render(buf, node)
@@ -1137,8 +1239,8 @@ func copyFile(sourcePath, destPath string) {
 
 func main() {
 	// Render the template with data
-	//props := map[string]any{"name": "Ja", "age": 2, "animals": []string{"cat", "dog", "pig"}}
-	props := map[string]any{"name": "Ja", "age": 2, "animals": []string{"cat", "dog", "pig"}, "test": "sup"}
+	props := map[string]any{"name": "Ja", "age": 2, "animals": []string{"cat", "dog", "pig"}}
+	//props := map[string]any{"name": "Ja", "age": 2, "animals": []string{"cat", "dog", "pig"}, "test": "sup"}
 	markup, script, style := Render("views/home.html", props)
 	os.MkdirAll("./public", os.ModePerm)
 	os.WriteFile("./public/script.js", []byte(script), fs.ModePerm)
