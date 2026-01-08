@@ -33,7 +33,7 @@ type Component struct {
 }
 
 // Render renders the template with the given data
-func RecursiveRender(path string, props map[string]any, scopeStack []scopeStackItem) (string, string, string, []scopeStackItem, string, string) {
+func Render(path string, props map[string]any, scopeStack []scopeStackItem) (string, string, string, []scopeStackItem, string, string) {
 	// Split template into parts
 	markup, fence, script, style := templateParts(path)
 	// Get list of imported components and remove imports from fence
@@ -50,8 +50,9 @@ func RecursiveRender(path string, props map[string]any, scopeStack []scopeStackI
 	return markup, script, style, scopeStack, pScopeExp, fence
 }
 
-func Render(path string, props map[string]any) (string, string, string) {
-	markup, script, style, scopeStack, pScopeExp, fence := RecursiveRender(path, props, []scopeStackItem{})
+// Starting point for top-level <html> document
+func RenderRoot(path string, props map[string]any) (string, string, string) {
+	markup, script, style, scopeStack, pScopeExp, fence := Render(path, props, []scopeStackItem{})
 	// Create scoped classes and add to html
 	markup, scopedElements := scopeHTML(markup, props, pScopeExp, fence)
 	scopeStack = append(scopeStack, scopeStackItem{
@@ -160,7 +161,7 @@ type scopedElement struct {
 	scopedClass string
 }
 
-func parseWithoutCorrection(input string) ([]*html.Node, error) {
+func parseNoFix(input string) ([]*html.Node, error) {
 	var nodes []*html.Node
 	z := html.NewTokenizer(strings.NewReader(input))
 
@@ -205,13 +206,13 @@ func parseWithoutCorrection(input string) ([]*html.Node, error) {
 		case html.EndTagToken:
 			token := z.Token()
 			if len(stack) == 0 {
-				// orphan end tag → ignore or handle
+				// orphan end tag (ignore)
 				continue
 			}
 			if stack[len(stack)-1].Data == token.Data {
 				stack = stack[:len(stack)-1]
 			}
-			// else: mismatched → you can ignore (no auto-correction)
+			// else: mismatched (no auto-correction)
 
 		case html.TextToken:
 			token := z.Token()
@@ -266,7 +267,7 @@ func parseWithoutCorrection(input string) ([]*html.Node, error) {
 	}
 }
 
-// Simple void elements check (you can expand this)
+// Simple check for elements that lack closing tags and have no children nodes
 func isVoidElement(a atom.Atom) bool {
 	switch a {
 	case atom.Area, atom.Base, atom.Br, atom.Col, atom.Command,
@@ -281,7 +282,7 @@ func isVoidElement(a atom.Atom) bool {
 func scopeHTML(markup string, props map[string]any, pScopeExp string, fence string) (string, []scopedElement) {
 	scopedElements := []scopedElement{}
 	fragments := []string{}
-	nodes, err := parseWithoutCorrection(markup)
+	nodes, err := parseNoFix(markup)
 	if err != nil {
 		fmt.Println("HTML Parsing Error:", err)
 	}
@@ -1008,7 +1009,7 @@ func evalControlTree(controlTree []control, scopeStack []scopeStackItem, props m
 					compPath = comp.Path
 				}
 			}
-			markup, script, style, newScopeStack, newPScopeExp, newFence := RecursiveRender(compPath, newProps, scopeStack)
+			markup, script, style, newScopeStack, newPScopeExp, newFence := Render(compPath, newProps, scopeStack)
 			// Create scoped classes and add to html
 			markup, scopedElements := scopeHTML(markup, ctrl.compProps, newPScopeExp, newFence)
 			// Add scoped classes to css
@@ -1026,7 +1027,7 @@ func evalControlTree(controlTree []control, scopeStack []scopeStackItem, props m
 				newProps[prop_name] = evalJS(fmt.Sprintf(`%s`, prop_value), fence)
 			}
 			evaluatedCompPath := evalAllBrackets(ctrl.dynamicCompPath, fence)
-			markup, script, style, newScopeStack, newPScopeExp, newFence := RecursiveRender(evaluatedCompPath, newProps, scopeStack)
+			markup, script, style, newScopeStack, newPScopeExp, newFence := Render(evaluatedCompPath, newProps, scopeStack)
 			// Create scoped classes and add to html
 			markup, scopedElements := scopeHTML(markup, ctrl.dynamicCompProps, newPScopeExp, newFence)
 			// Add scoped classes to css
@@ -1201,7 +1202,7 @@ func main() {
 	// Render the template with data
 	props := map[string]any{"name": "Ja", "age": 2, "animals": []string{"cat", "dog", "pig"}}
 	//props := map[string]any{"name": "Ja", "age": 2, "animals": []string{"cat", "dog", "pig"}, "test": "sup"}
-	markup, script, style := Render("views/home.html", props)
+	markup, script, style := RenderRoot("views/home.html", props)
 	os.MkdirAll("./public", os.ModePerm)
 	os.WriteFile("./public/script.js", []byte(script), fs.ModePerm)
 	os.WriteFile("./public/style.css", []byte(style), fs.ModePerm)
