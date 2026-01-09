@@ -399,9 +399,9 @@ func traverse(node *html.Node, scopedElements []scopedElement, fence string) (*h
 					}
 				}
 				if strings.Contains(attr.Val, "{") && strings.Contains(attr.Val, "}") {
-					if attr.Key != "p-text" && attr.Key != "p-scope" && !strings.HasPrefix(attr.Key, ":") {
+					if attr.Key != "p-text" && attr.Key != "p-scope" && !strings.HasPrefix(attr.Key, "p-attr") {
 						node.Attr = append(node.Attr, html.Attribute{
-							Key: ":" + attr.Key,
+							Key: "p-attr:" + attr.Key,
 							Val: "`" + strings.ReplaceAll(strings.ReplaceAll(attr.Val, "{", "${"), "\"", "'") + "`",
 						})
 						node.Attr[i].Val = evalAllBrackets(attr.Val, fence)

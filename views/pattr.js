@@ -129,6 +129,34 @@ window.Pattr = {
         'p-model': (el, value) => {
             el.value = value
         },
+        'p-attr': (el, value, modifiers = {}) => {
+            // Two usage modes:
+            // 1. Single attribute: p-attr:data-id="userId" or p-attr:href="link"
+            // 2. Multiple attributes: p-attr="{ 'data-id': userId, 'data-name': userName }"
+            
+            // Check if this is single attribute mode (has modifier parts)
+            const modifierKeys = Object.keys(modifiers);
+            if (modifierKeys.length > 0) {
+                // Single attribute mode: p-attr:data-id="value"
+                // The attribute name is the first modifier
+                const attrName = modifierKeys[0];
+                if (value === null || value === undefined || value === false) {
+                    el.removeAttribute(attrName);
+                } else {
+                    el.setAttribute(attrName, String(value));
+                }
+            } else if (typeof value === 'object' && value !== null) {
+                // Multiple attributes mode: p-attr="{ 'data-id': userId }"
+                Object.keys(value).forEach(attrName => {
+                    const attrValue = value[attrName];
+                    if (attrValue === null || attrValue === undefined || attrValue === false) {
+                        el.removeAttribute(attrName);
+                    } else {
+                        el.setAttribute(attrName, String(attrValue));
+                    }
+                });
+            }
+        },
     },
     
     parseDirectiveModifiers(attrName) {
