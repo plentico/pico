@@ -281,7 +281,8 @@ func isVoidElement(a atom.Atom) bool {
 
 func scopeHTML(markup string, props map[string]any, pScopeExp string, fence string) (string, []scopedElement) {
 	scopedElements := []scopedElement{}
-	fragments := []string{}
+	var markupBuilder strings.Builder
+
 	nodes, err := parseNoFix(markup)
 	if err != nil {
 		fmt.Println("HTML Parsing Error:", err)
@@ -330,19 +331,13 @@ func scopeHTML(markup string, props map[string]any, pScopeExp string, fence stri
 
 		node, scopedElements = traverse(node, scopedElements, fence)
 
-		buf := &strings.Builder{}
-		err := html.Render(buf, node)
-		if err != nil {
+		if err := html.Render(&markupBuilder, node); err != nil {
 			log.Fatal(err)
 		}
-		fragments = append(fragments, html.UnescapeString(buf.String()))
-	}
-	markup = ""
-	for _, f := range fragments {
-		markup = markup + f
+
 	}
 
-	return markup, scopedElements
+	return markupBuilder.String(), scopedElements
 }
 
 func traverse(node *html.Node, scopedElements []scopedElement, fence string) (*html.Node, []scopedElement) {
