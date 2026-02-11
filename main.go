@@ -321,7 +321,7 @@ func scopeHTML(markup string, props map[string]any, pScopeExp string, fence stri
 		if node.Type == html.ElementNode && (len(props) > 0 || pScopeExp != "") {
 			if node.Data != "html" {
 				// Add args passed into the comp (which may be expressions)
-				// Top-level HTML doesn't have expressions passed in, only raw values
+				// Top-level HTML props should only be in p-root-data, not p-scope
 				pScopeExp = flattenCompArgs(props) + pScopeExp
 			}
 			node.Attr = append(node.Attr, html.Attribute{Key: "p-scope", Val: pScopeExp})
@@ -1214,7 +1214,6 @@ func main() {
 		elapsed := time.Since(start)
 		fmt.Printf("Execution time: %s\n", elapsed)
 	*/
-	copyFile("./views/pattr.js", "./public/pattr.js")
 	copyFile("./views/cms.js", "./public/cms.js")
 	copyFile("./views/cms.css", "./public/cms.css")
 
