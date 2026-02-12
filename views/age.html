@@ -10,6 +10,7 @@ prop age;
 	d.style.border = "1px solid red";
 </script>
 
+{if age > 1}
 <div class="container">
 	<div>{name}'s age is: {age}</div>
 
@@ -31,6 +32,7 @@ prop age;
 
 	<Double {age} text={age > 100 ? "yoooo that's old" : ""} />
 </div>
+{/if}
 
 <style>
 	.container {

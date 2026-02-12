@@ -951,7 +951,9 @@ func addPScopeAttribute(htmlStr string, dataStr string) (string, error) {
 
 // addPShowAttribute adds p-show attribute to all top-level HTML elements
 // and adds style="display: none;" if the condition evaluates to false during SSR
-func addPShowAttribute(htmlStr string, showCondition string, fence string) (string, error) {
+// usePreScope determines if we should use p-show:pre-scope (for parent-level conditionals)
+// or regular p-show (for internal component conditionals)
+func addPShowAttribute(htmlStr string, showCondition string, fence string, usePreScope bool) (string, error) {
 	// Evaluate the condition during SSR
 	conditionResult := evalJS(showCondition, fence)
 	shouldShow := isBoolAndTrue(conditionResult)
@@ -965,17 +967,23 @@ func addPShowAttribute(htmlStr string, showCondition string, fence string) (stri
 	var buf bytes.Buffer
 	for _, node := range nodes {
 		if node.Type == html.ElementNode {
+			// Determine the attribute key based on whether this is a pre-scope or post-scope conditional
+			attrKey := "p-show"
+			if usePreScope {
+				attrKey = "p-show:pre-scope"
+			}
+
 			// Check if p-show attribute already exists
 			hasPShow := false
 			for _, attr := range node.Attr {
-				if attr.Key == "p-show" {
+				if attr.Key == "p-show" || attr.Key == "p-show:pre-scope" {
 					hasPShow = true
 					break
 				}
 			}
 			// Add p-show if not present
 			if !hasPShow {
-				node.Attr = append(node.Attr, html.Attribute{Key: "p-show", Val: showCondition})
+				node.Attr = append(node.Attr, html.Attribute{Key: attrKey, Val: showCondition})
 			}
 
 			// If condition is false during SSR, add display: none to prevent flash
@@ -1003,6 +1011,19 @@ func addPShowAttribute(htmlStr string, showCondition string, fence string) (stri
 	return buf.String(), nil
 }
 
+// containsComponent checks if any child control contains a component (isComp or isDynamicComp)
+func containsComponent(ctrl *control) bool {
+	if ctrl.isComp || ctrl.isDynamicComp {
+		return true
+	}
+	for _, child := range ctrl.children {
+		if containsComponent(&child) {
+			return true
+		}
+	}
+	return false
+}
+
 func evalControlTree(controlTree []control, scopeStack []scopeStackItem, props map[string]any, pScopeExp string, fence string, components []Component, usePattr bool, parentConditions ...string) (string, []scopeStackItem) {
 	var markupBuilder strings.Builder
 
@@ -1016,6 +1037,17 @@ func evalControlTree(controlTree []control, scopeStack []scopeStackItem, props m
 				// Pattr mode: output all branches with p-show attributes
 				collectIfConditions := []string{}
 
+				// Check if this if statement contains a component
+				// If so, it's a parent-level conditional wrapping a component, use p-show:pre-scope
+				// Otherwise, it's internal to a component, use regular p-show
+				usePreScope := false
+				for _, child := range ctrl.children {
+					if containsComponent(&child) {
+						usePreScope = true
+						break
+					}
+				}
+
 				// Build the full condition including parent conditions
 				buildFullCondition := func(currentCondition string) string {
 					if len(parentConditions) > 0 {
@@ -1028,7 +1060,7 @@ func evalControlTree(controlTree []control, scopeStack []scopeStackItem, props m
 				// Render if branch with its condition
 				ifFullCondition := buildFullCondition(ctrl.ifCondition)
 				ifMarkup, newScopeStack := evalControlTree(ctrl.children, scopeStack, props, pScopeExp, fence, components, pattrEnabled, ifFullCondition)
-				ifMarkupWithPShow, err := addPShowAttribute(ifMarkup, ifFullCondition, fence)
+				ifMarkupWithPShow, err := addPShowAttribute(ifMarkup, ifFullCondition, fence, usePreScope)
 				if err == nil {
 					markupBuilder.WriteString(ifMarkupWithPShow)
 					scopeStack = newScopeStack
@@ -1048,7 +1080,7 @@ func evalControlTree(controlTree []control, scopeStack []scopeStackItem, props m
 						fullCondition := buildFullCondition(currentCondition)
 
 						elseIfMarkup, newScopeStack := evalControlTree(child.children, scopeStack, props, pScopeExp, fence, components, pattrEnabled, fullCondition)
-						elseIfMarkupWithPShow, err := addPShowAttribute(elseIfMarkup, fullCondition, fence)
+						elseIfMarkupWithPShow, err := addPShowAttribute(elseIfMarkup, fullCondition, fence, usePreScope)
 						if err == nil {
 							markupBuilder.WriteString(elseIfMarkupWithPShow)
 							scopeStack = newScopeStack
@@ -1069,7 +1101,7 @@ func evalControlTree(controlTree []control, scopeStack []scopeStackItem, props m
 						fullCondition := buildFullCondition(currentCondition)
 
 						elseMarkup, newScopeStack := evalControlTree(child.children, scopeStack, props, pScopeExp, fence, components, pattrEnabled, fullCondition)
-						elseMarkupWithPShow, err := addPShowAttribute(elseMarkup, fullCondition, fence)
+						elseMarkupWithPShow, err := addPShowAttribute(elseMarkup, fullCondition, fence, usePreScope)
 						if err == nil {
 							markupBuilder.WriteString(elseMarkupWithPShow)
 							scopeStack = newScopeStack
