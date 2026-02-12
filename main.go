@@ -33,7 +33,7 @@ type Component struct {
 }
 
 // Render renders the template with the given data
-func Render(path string, props map[string]any, scopeStack []scopeStackItem) (string, string, string, []scopeStackItem, string, string) {
+func Render(path string, props map[string]any, scopeStack []scopeStackItem, noPattr ...bool) (string, string, string, []scopeStackItem, string, string) {
 	// Split template into parts
 	markup, fence, script, style := templateParts(path)
 	// Get list of imported components and remove imports from fence
@@ -45,14 +45,23 @@ func Render(path string, props map[string]any, scopeStack []scopeStackItem) (str
 	if err != nil {
 		fmt.Println(err)
 	}
-	markup, scopeStack = evalControlTree(controlTree, scopeStack, props, pScopeExp, fence, components)
+	// Default noPattr to false (use Pattr by default)
+	usePattr := true
+	if len(noPattr) > 0 && noPattr[0] {
+		usePattr = false
+	}
+	markup, scopeStack = evalControlTree(controlTree, scopeStack, props, pScopeExp, fence, components, usePattr)
 
 	return markup, script, style, scopeStack, pScopeExp, fence
 }
 
 // Starting point for top-level <html> document
-func RenderRoot(path string, props map[string]any) (string, string, string) {
-	markup, script, style, scopeStack, pScopeExp, fence := Render(path, props, []scopeStackItem{})
+func RenderRoot(path string, props map[string]any, noPattr ...bool) (string, string, string) {
+	usePattr := true
+	if len(noPattr) > 0 && noPattr[0] {
+		usePattr = false
+	}
+	markup, script, style, scopeStack, pScopeExp, fence := Render(path, props, []scopeStackItem{}, !usePattr)
 	// Create scoped classes and add to html
 	markup, scopedElements := scopeHTML(markup, props, pScopeExp, fence)
 	scopeStack = append(scopeStack, scopeStackItem{
@@ -940,37 +949,122 @@ func addPScopeAttribute(htmlStr string, dataStr string) (string, error) {
 	return buf.String(), nil
 }
 
-func evalControlTree(controlTree []control, scopeStack []scopeStackItem, props map[string]any, pScopeExp string, fence string, components []Component) (string, []scopeStackItem) {
+// addPShowAttribute adds p-show attribute to all top-level HTML elements
+func addPShowAttribute(htmlStr string, showCondition string) (string, error) {
+	// Parse the HTML string
+	nodes, err := parseNoFix(htmlStr)
+	if err != nil {
+		return "", fmt.Errorf("failed to parse HTML: %w", err)
+	}
+
+	var buf bytes.Buffer
+	for _, node := range nodes {
+		if node.Type == html.ElementNode {
+			// Check if p-show attribute already exists
+			hasPShow := false
+			for _, attr := range node.Attr {
+				if attr.Key == "p-show" {
+					hasPShow = true
+					break
+				}
+			}
+			// Add p-show if not present
+			if !hasPShow {
+				node.Attr = append(node.Attr, html.Attribute{Key: "p-show", Val: showCondition})
+			}
+		}
+		if err := html.Render(&buf, node); err != nil {
+			return "", fmt.Errorf("failed to render HTML: %w", err)
+		}
+	}
+
+	return buf.String(), nil
+}
+
+func evalControlTree(controlTree []control, scopeStack []scopeStackItem, props map[string]any, pScopeExp string, fence string, components []Component, usePattr ...bool) (string, []scopeStackItem) {
 	var markupBuilder strings.Builder
+
+	// Default to using Pattr (true) if not specified
+	pattrEnabled := true
+	if len(usePattr) > 0 && !usePattr[0] {
+		pattrEnabled = false
+	}
 
 	for _, ctrl := range controlTree {
 		if ctrl.isTextNode {
 			markupBuilder.WriteString(ctrl.textContent)
 		} else if ctrl.isIfStmt {
-			if isBoolAndTrue(evalJS(ctrl.ifCondition, fence)) {
-				markup, newScopeStack := evalControlTree(ctrl.children, scopeStack, props, pScopeExp, fence, components)
-				markupBuilder.WriteString(markup)
-				scopeStack = newScopeStack
-			} else {
-				evaluated := false
+			if pattrEnabled {
+				// Pattr mode: output all branches with p-show attributes
+				collectIfConditions := []string{}
+
+				// Render if branch with its condition
+				ifMarkup, newScopeStack := evalControlTree(ctrl.children, scopeStack, props, pScopeExp, fence, components, pattrEnabled)
+				ifMarkupWithPShow, err := addPShowAttribute(ifMarkup, ctrl.ifCondition)
+				if err == nil {
+					markupBuilder.WriteString(ifMarkupWithPShow)
+					scopeStack = newScopeStack
+				}
+				collectIfConditions = append(collectIfConditions, ctrl.ifCondition)
+
 				// Process else-if statements
 				for _, child := range ctrl.children {
-					if child.isElseIfStmt && isBoolAndTrue(evalJS(child.elseIfCondition, fence)) {
-						markup, newScopeStack := evalControlTree(child.children, scopeStack, props, pScopeExp, fence, components)
-						markupBuilder.WriteString(markup)
-						scopeStack = newScopeStack
-						evaluated = true
-						break
+					if child.isElseIfStmt {
+						elseIfMarkup, newScopeStack := evalControlTree(child.children, scopeStack, props, pScopeExp, fence, components, pattrEnabled)
+						elseIfMarkupWithPShow, err := addPShowAttribute(elseIfMarkup, child.elseIfCondition)
+						if err == nil {
+							markupBuilder.WriteString(elseIfMarkupWithPShow)
+							scopeStack = newScopeStack
+						}
+						collectIfConditions = append(collectIfConditions, child.elseIfCondition)
 					}
 				}
-				// Process else statement if no else-if was true
-				if !evaluated {
+
+				// Process else statement with negated conditions
+				for _, child := range ctrl.children {
+					if child.isElseStmt {
+						// Build negated condition: !(cond1) && !(cond2) && ...
+						negatedConditions := []string{}
+						for _, cond := range collectIfConditions {
+							negatedConditions = append(negatedConditions, "!("+cond+")")
+						}
+						elseCondition := strings.Join(negatedConditions, " && ")
+
+						elseMarkup, newScopeStack := evalControlTree(child.children, scopeStack, props, pScopeExp, fence, components, pattrEnabled)
+						elseMarkupWithPShow, err := addPShowAttribute(elseMarkup, elseCondition)
+						if err == nil {
+							markupBuilder.WriteString(elseMarkupWithPShow)
+							scopeStack = newScopeStack
+						}
+					}
+				}
+			} else {
+				// No Pattr mode: traditional conditional rendering (evaluate and output only matching branch)
+				if isBoolAndTrue(evalJS(ctrl.ifCondition, fence)) {
+					markup, newScopeStack := evalControlTree(ctrl.children, scopeStack, props, pScopeExp, fence, components, pattrEnabled)
+					markupBuilder.WriteString(markup)
+					scopeStack = newScopeStack
+				} else {
+					evaluated := false
+					// Process else-if statements
 					for _, child := range ctrl.children {
-						if child.isElseStmt {
-							markup, newScopeStack := evalControlTree(child.children, scopeStack, props, pScopeExp, fence, components)
+						if child.isElseIfStmt && isBoolAndTrue(evalJS(child.elseIfCondition, fence)) {
+							markup, newScopeStack := evalControlTree(child.children, scopeStack, props, pScopeExp, fence, components, pattrEnabled)
 							markupBuilder.WriteString(markup)
 							scopeStack = newScopeStack
+							evaluated = true
 							break
+						}
+					}
+					// Process else statement if no else-if was true
+					if !evaluated {
+						for _, child := range ctrl.children {
+							if child.isElseStmt {
+								markup, newScopeStack := evalControlTree(child.children, scopeStack, props, pScopeExp, fence, components, pattrEnabled)
+								markupBuilder.WriteString(markup)
+								scopeStack = newScopeStack
+								break
+							}
 						}
 					}
 				}
@@ -985,7 +1079,7 @@ func evalControlTree(controlTree []control, scopeStack []scopeStackItem, props m
 						newProps[k] = v
 					}
 					newProps[ctrl.forVar] = item
-					markup, newScopeStack := evalControlTree(ctrl.children, scopeStack, newProps, pScopeExp, fence, components)
+					markup, newScopeStack := evalControlTree(ctrl.children, scopeStack, newProps, pScopeExp, fence, components, pattrEnabled)
 					//dataStr := "{" + ctrl.forVar + ": " + makeAttrStr(anyToString(item)) + "}"
 					//markup, _ = addPScopeAttribute(markup, dataStr)
 					markupBuilder.WriteString(markup)
@@ -1004,7 +1098,7 @@ func evalControlTree(controlTree []control, scopeStack []scopeStackItem, props m
 					compPath = comp.Path
 				}
 			}
-			markup, script, style, newScopeStack, newPScopeExp, newFence := Render(compPath, newProps, scopeStack)
+			markup, script, style, newScopeStack, newPScopeExp, newFence := Render(compPath, newProps, scopeStack, !pattrEnabled)
 			// Create scoped classes and add to html
 			markup, scopedElements := scopeHTML(markup, ctrl.compProps, newPScopeExp, newFence)
 			// Add scoped classes to css
@@ -1022,7 +1116,7 @@ func evalControlTree(controlTree []control, scopeStack []scopeStackItem, props m
 				newProps[prop_name] = evalJS(fmt.Sprintf(`%s`, prop_value), fence)
 			}
 			evaluatedCompPath := evalAllBrackets(ctrl.dynamicCompPath, fence)
-			markup, script, style, newScopeStack, newPScopeExp, newFence := Render(evaluatedCompPath, newProps, scopeStack)
+			markup, script, style, newScopeStack, newPScopeExp, newFence := Render(evaluatedCompPath, newProps, scopeStack, !pattrEnabled)
 			// Create scoped classes and add to html
 			markup, scopedElements := scopeHTML(markup, ctrl.dynamicCompProps, newPScopeExp, newFence)
 			// Add scoped classes to css
