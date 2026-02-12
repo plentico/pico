@@ -1024,6 +1024,74 @@ func containsComponent(ctrl *control) bool {
 	return false
 }
 
+// processLoopIteration processes a single for-loop iteration's markup:
+// - Adds p-scope and p-id to each top-level element
+// - Adds p-text for text nodes with brackets, p-attr for attributes with brackets
+// - Evaluates all brackets using the loop-augmented fence
+func processLoopIteration(markup string, loopFence string, forVar string, item any) string {
+	nodes, err := parseNoFix(markup)
+	if err != nil {
+		return markup
+	}
+
+	pScopeVal := forVar + " = " + makeAttrStr(anyToString(item)) + ";"
+
+	var buf strings.Builder
+	for _, node := range nodes {
+		// Add p-scope and p-id to top-level elements
+		if node.Type == html.ElementNode {
+			node.Attr = append(node.Attr, html.Attribute{Key: "p-scope", Val: pScopeVal})
+			pID, _ := generateRandom()
+			node.Attr = append(node.Attr, html.Attribute{Key: "p-id", Val: pID})
+		}
+
+		// Walk and process text nodes and attributes with brackets
+		processLoopNode(node, loopFence)
+
+		if err := html.Render(&buf, node); err != nil {
+			log.Fatal(err)
+		}
+	}
+	return buf.String()
+}
+
+// processLoopNode walks the node tree, adding p-text/p-attr and evaluating brackets
+func processLoopNode(node *html.Node, loopFence string) {
+	if node.Type == html.TextNode {
+		if strings.Contains(node.Data, "{") && strings.Contains(node.Data, "}") {
+			if p := node.Parent; p != nil && p.Data == "script" {
+				for _, attr := range p.Attr {
+					if attr.Key == "type" && attr.Val == "application/json" {
+						return
+					}
+				}
+			}
+			attr := html.Attribute{
+				Key: "p-text",
+				Val: "`" + strings.ReplaceAll(strings.ReplaceAll(node.Data, "{", "${"), "\"", "'") + "`",
+			}
+			node.Parent.Attr = append(node.Parent.Attr, attr)
+		}
+		node.Data = evalAllBrackets(node.Data, loopFence)
+	}
+	if node.Type == html.ElementNode {
+		for i, attr := range node.Attr {
+			if strings.Contains(attr.Val, "{") && strings.Contains(attr.Val, "}") {
+				if attr.Key != "p-text" && attr.Key != "p-scope" && !strings.HasPrefix(attr.Key, "p-attr") {
+					node.Attr = append(node.Attr, html.Attribute{
+						Key: "p-attr:" + attr.Key,
+						Val: "`" + strings.ReplaceAll(strings.ReplaceAll(attr.Val, "{", "${"), "\"", "'") + "`",
+					})
+					node.Attr[i].Val = evalAllBrackets(attr.Val, loopFence)
+				}
+			}
+		}
+	}
+	for child := node.FirstChild; child != nil; child = child.NextSibling {
+		processLoopNode(child, loopFence)
+	}
+}
+
 func evalControlTree(controlTree []control, scopeStack []scopeStackItem, props map[string]any, pScopeExp string, fence string, components []Component, usePattr bool, parentConditions ...string) (string, []scopeStackItem) {
 	var markupBuilder strings.Builder
 
@@ -1031,9 +1099,9 @@ func evalControlTree(controlTree []control, scopeStack []scopeStackItem, props m
 
 	for _, ctrl := range controlTree {
 		if ctrl.isTextNode {
-			// Evaluate text content using the fence (important for loop variables)
-			evaluatedText := evalAllBrackets(ctrl.textContent, fence)
-			markupBuilder.WriteString(evaluatedText)
+			// Don't evaluate here; let traverse() or processLoopIteration() handle
+			// brackets so p-text attributes can be added for reactivity
+			markupBuilder.WriteString(ctrl.textContent)
 		} else if ctrl.isIfStmt {
 			if pattrEnabled {
 				// Pattr mode: output all branches with p-show attributes
@@ -1154,8 +1222,13 @@ func evalControlTree(controlTree []control, scopeStack []scopeStackItem, props m
 					// Create a modified fence that includes the loop variable for JS evaluation
 					loopFence := fence + "\nlet " + ctrl.forVar + " = " + anyToString(item) + ";"
 					markup, newScopeStack := evalControlTree(ctrl.children, scopeStack, newProps, pScopeExp, loopFence, components, pattrEnabled)
-					//dataStr := "{" + ctrl.forVar + ": " + makeAttrStr(anyToString(item)) + "}"
-					//markup, _ = addPScopeAttribute(markup, dataStr)
+					if pattrEnabled {
+						// Process iteration: add p-text, p-attr, p-scope, p-id, then evaluate brackets
+						markup = processLoopIteration(markup, loopFence, ctrl.forVar, item)
+					} else {
+						// SSR-only: just evaluate all brackets with the loop fence
+						markup = evalAllBrackets(markup, loopFence)
+					}
 					markupBuilder.WriteString(markup)
 					scopeStack = newScopeStack
 				}
