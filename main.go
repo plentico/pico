@@ -981,14 +981,10 @@ func addPShowAttribute(htmlStr string, showCondition string) (string, error) {
 	return buf.String(), nil
 }
 
-func evalControlTree(controlTree []control, scopeStack []scopeStackItem, props map[string]any, pScopeExp string, fence string, components []Component, usePattr ...bool) (string, []scopeStackItem) {
+func evalControlTree(controlTree []control, scopeStack []scopeStackItem, props map[string]any, pScopeExp string, fence string, components []Component, usePattr bool, parentConditions ...string) (string, []scopeStackItem) {
 	var markupBuilder strings.Builder
 
-	// Default to using Pattr (true) if not specified
-	pattrEnabled := true
-	if len(usePattr) > 0 && !usePattr[0] {
-		pattrEnabled = false
-	}
+	pattrEnabled := usePattr
 
 	for _, ctrl := range controlTree {
 		if ctrl.isTextNode {
@@ -998,9 +994,19 @@ func evalControlTree(controlTree []control, scopeStack []scopeStackItem, props m
 				// Pattr mode: output all branches with p-show attributes
 				collectIfConditions := []string{}
 
+				// Build the full condition including parent conditions
+				buildFullCondition := func(currentCondition string) string {
+					if len(parentConditions) > 0 {
+						parentCondition := strings.Join(parentConditions, " && ")
+						return "(" + parentCondition + ") && (" + currentCondition + ")"
+					}
+					return currentCondition
+				}
+
 				// Render if branch with its condition
-				ifMarkup, newScopeStack := evalControlTree(ctrl.children, scopeStack, props, pScopeExp, fence, components, pattrEnabled)
-				ifMarkupWithPShow, err := addPShowAttribute(ifMarkup, ctrl.ifCondition)
+				ifFullCondition := buildFullCondition(ctrl.ifCondition)
+				ifMarkup, newScopeStack := evalControlTree(ctrl.children, scopeStack, props, pScopeExp, fence, components, pattrEnabled, ifFullCondition)
+				ifMarkupWithPShow, err := addPShowAttribute(ifMarkup, ifFullCondition)
 				if err == nil {
 					markupBuilder.WriteString(ifMarkupWithPShow)
 					scopeStack = newScopeStack
@@ -1016,9 +1022,10 @@ func evalControlTree(controlTree []control, scopeStack []scopeStackItem, props m
 							negatedConditions = append(negatedConditions, "!("+cond+")")
 						}
 						// Add the current else-if condition
-						fullCondition := strings.Join(negatedConditions, " && ") + " && " + child.elseIfCondition
+						currentCondition := strings.Join(negatedConditions, " && ") + " && " + child.elseIfCondition
+						fullCondition := buildFullCondition(currentCondition)
 
-						elseIfMarkup, newScopeStack := evalControlTree(child.children, scopeStack, props, pScopeExp, fence, components, pattrEnabled)
+						elseIfMarkup, newScopeStack := evalControlTree(child.children, scopeStack, props, pScopeExp, fence, components, pattrEnabled, fullCondition)
 						elseIfMarkupWithPShow, err := addPShowAttribute(elseIfMarkup, fullCondition)
 						if err == nil {
 							markupBuilder.WriteString(elseIfMarkupWithPShow)
@@ -1036,10 +1043,11 @@ func evalControlTree(controlTree []control, scopeStack []scopeStackItem, props m
 						for _, cond := range collectIfConditions {
 							negatedConditions = append(negatedConditions, "!("+cond+")")
 						}
-						elseCondition := strings.Join(negatedConditions, " && ")
+						currentCondition := strings.Join(negatedConditions, " && ")
+						fullCondition := buildFullCondition(currentCondition)
 
-						elseMarkup, newScopeStack := evalControlTree(child.children, scopeStack, props, pScopeExp, fence, components, pattrEnabled)
-						elseMarkupWithPShow, err := addPShowAttribute(elseMarkup, elseCondition)
+						elseMarkup, newScopeStack := evalControlTree(child.children, scopeStack, props, pScopeExp, fence, components, pattrEnabled, fullCondition)
+						elseMarkupWithPShow, err := addPShowAttribute(elseMarkup, fullCondition)
 						if err == nil {
 							markupBuilder.WriteString(elseMarkupWithPShow)
 							scopeStack = newScopeStack
