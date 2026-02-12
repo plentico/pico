@@ -403,12 +403,26 @@ func traverse(node *html.Node, scopedElements []scopedElement, fence string) (*h
 					}
 				}
 				if strings.Contains(attr.Val, "{") && strings.Contains(attr.Val, "}") {
-					if attr.Key != "p-text" && attr.Key != "p-scope" && !strings.HasPrefix(attr.Key, "p-attr") {
-						node.Attr = append(node.Attr, html.Attribute{
-							Key: "p-attr:" + attr.Key,
-							Val: "`" + strings.ReplaceAll(strings.ReplaceAll(attr.Val, "{", "${"), "\"", "'") + "`",
-						})
-						node.Attr[i].Val = evalAllBrackets(attr.Val, fence)
+					if attr.Key != "p-text" && attr.Key != "p-scope" && !strings.HasPrefix(attr.Key, "p-attr") && !strings.HasPrefix(attr.Key, "p-on") {
+						if strings.HasPrefix(attr.Key, "on") {
+							// Event handler: convert onclick="{expr}" to p-on:click="expr"
+							eventName := attr.Key[2:]
+							expr := strings.TrimSpace(attr.Val)
+							if strings.HasPrefix(expr, "{") && strings.HasSuffix(expr, "}") {
+								expr = expr[1 : len(expr)-1]
+							}
+							node.Attr = append(node.Attr, html.Attribute{
+								Key: "p-on:" + eventName,
+								Val: expr,
+							})
+							node.Attr[i].Val = ""
+						} else {
+							node.Attr = append(node.Attr, html.Attribute{
+								Key: "p-attr:" + attr.Key,
+								Val: "`" + strings.ReplaceAll(strings.ReplaceAll(attr.Val, "{", "${"), "\"", "'") + "`",
+							})
+							node.Attr[i].Val = evalAllBrackets(attr.Val, fence)
+						}
 					}
 				}
 			}
@@ -1077,12 +1091,26 @@ func processLoopNode(node *html.Node, loopFence string) {
 	if node.Type == html.ElementNode {
 		for i, attr := range node.Attr {
 			if strings.Contains(attr.Val, "{") && strings.Contains(attr.Val, "}") {
-				if attr.Key != "p-text" && attr.Key != "p-scope" && !strings.HasPrefix(attr.Key, "p-attr") {
-					node.Attr = append(node.Attr, html.Attribute{
-						Key: "p-attr:" + attr.Key,
-						Val: "`" + strings.ReplaceAll(strings.ReplaceAll(attr.Val, "{", "${"), "\"", "'") + "`",
-					})
-					node.Attr[i].Val = evalAllBrackets(attr.Val, loopFence)
+				if attr.Key != "p-text" && attr.Key != "p-scope" && !strings.HasPrefix(attr.Key, "p-attr") && !strings.HasPrefix(attr.Key, "p-on") {
+					if strings.HasPrefix(attr.Key, "on") {
+						// Event handler: convert onclick="{expr}" to p-on:click="expr"
+						eventName := attr.Key[2:]
+						expr := strings.TrimSpace(attr.Val)
+						if strings.HasPrefix(expr, "{") && strings.HasSuffix(expr, "}") {
+							expr = expr[1 : len(expr)-1]
+						}
+						node.Attr = append(node.Attr, html.Attribute{
+							Key: "p-on:" + eventName,
+							Val: expr,
+						})
+						node.Attr[i].Val = ""
+					} else {
+						node.Attr = append(node.Attr, html.Attribute{
+							Key: "p-attr:" + attr.Key,
+							Val: "`" + strings.ReplaceAll(strings.ReplaceAll(attr.Val, "{", "${"), "\"", "'") + "`",
+						})
+						node.Attr[i].Val = evalAllBrackets(attr.Val, loopFence)
+					}
 				}
 			}
 		}
@@ -1090,6 +1118,25 @@ func processLoopNode(node *html.Node, loopFence string) {
 	for child := node.FirstChild; child != nil; child = child.NextSibling {
 		processLoopNode(child, loopFence)
 	}
+}
+
+// processLoopTemplate processes loop body markup for use as a <template p-for> body.
+// It adds p-text, p-attr, p-on attributes and evaluates brackets (same as processLoopNode),
+// but does NOT add p-scope or p-id (those are instance-specific for rendered items).
+func processLoopTemplate(markup string, loopFence string) string {
+	nodes, err := parseNoFix(markup)
+	if err != nil {
+		return markup
+	}
+
+	var buf strings.Builder
+	for _, node := range nodes {
+		processLoopNode(node, loopFence)
+		if err := html.Render(&buf, node); err != nil {
+			log.Fatal(err)
+		}
+	}
+	return buf.String()
 }
 
 func evalControlTree(controlTree []control, scopeStack []scopeStackItem, props map[string]any, pScopeExp string, fence string, components []Component, usePattr bool, parentConditions ...string) (string, []scopeStackItem) {
@@ -1213,6 +1260,29 @@ func evalControlTree(controlTree []control, scopeStack []scopeStackItem, props m
 			iterableVal := evalJS(ctrl.forCollection, fence)
 			items, ok := iterableVal.([]any)
 			if ok {
+				if pattrEnabled {
+					// Emit <template p-for="..."> for Pattr loop reactivity
+					pForExpr := ctrl.forVar + " of " + ctrl.forCollection
+					var templateLoopFence string
+					if len(items) > 0 {
+						templateLoopFence = fence + "\nlet " + ctrl.forVar + " = " + anyToString(items[0]) + ";"
+					} else {
+						templateLoopFence = fence + "\nlet " + ctrl.forVar + " = null;"
+					}
+					templateNewProps := make(map[string]any)
+					for k, v := range props {
+						templateNewProps[k] = v
+					}
+					if len(items) > 0 {
+						templateNewProps[ctrl.forVar] = items[0]
+					}
+					templateMarkup, _ := evalControlTree(ctrl.children, scopeStack, templateNewProps, pScopeExp, templateLoopFence, components, pattrEnabled)
+					templateMarkup = processLoopTemplate(templateMarkup, templateLoopFence)
+					markupBuilder.WriteString("<template p-for=\"" + html.EscapeString(pForExpr) + "\">")
+					markupBuilder.WriteString(templateMarkup)
+					markupBuilder.WriteString("</template>")
+				}
+
 				for _, item := range items {
 					newProps := make(map[string]any)
 					for k, v := range props {
