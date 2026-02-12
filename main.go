@@ -1031,7 +1031,9 @@ func evalControlTree(controlTree []control, scopeStack []scopeStackItem, props m
 
 	for _, ctrl := range controlTree {
 		if ctrl.isTextNode {
-			markupBuilder.WriteString(ctrl.textContent)
+			// Evaluate text content using the fence (important for loop variables)
+			evaluatedText := evalAllBrackets(ctrl.textContent, fence)
+			markupBuilder.WriteString(evaluatedText)
 		} else if ctrl.isIfStmt {
 			if pattrEnabled {
 				// Pattr mode: output all branches with p-show attributes
@@ -1149,7 +1151,9 @@ func evalControlTree(controlTree []control, scopeStack []scopeStackItem, props m
 						newProps[k] = v
 					}
 					newProps[ctrl.forVar] = item
-					markup, newScopeStack := evalControlTree(ctrl.children, scopeStack, newProps, pScopeExp, fence, components, pattrEnabled)
+					// Create a modified fence that includes the loop variable for JS evaluation
+					loopFence := fence + "\nlet " + ctrl.forVar + " = " + anyToString(item) + ";"
+					markup, newScopeStack := evalControlTree(ctrl.children, scopeStack, newProps, pScopeExp, loopFence, components, pattrEnabled)
 					//dataStr := "{" + ctrl.forVar + ": " + makeAttrStr(anyToString(item)) + "}"
 					//markup, _ = addPScopeAttribute(markup, dataStr)
 					markupBuilder.WriteString(markup)
