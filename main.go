@@ -1040,9 +1040,10 @@ func containsComponent(ctrl *control) bool {
 
 // processLoopIteration processes a single for-loop iteration's markup:
 // - Adds p-scope and p-id to each top-level element
+// - Adds p-for-key to each top-level element for hydration matching (format: "s{scopeId}:{index}")
 // - Adds p-text for text nodes with brackets, p-attr for attributes with brackets
 // - Evaluates all brackets using the loop-augmented fence
-func processLoopIteration(markup string, loopFence string, forVar string, item any) string {
+func processLoopIteration(markup string, loopFence string, forVar string, item any, scopeId int, index int) string {
 	nodes, err := parseNoFix(markup)
 	if err != nil {
 		return markup
@@ -1052,11 +1053,12 @@ func processLoopIteration(markup string, loopFence string, forVar string, item a
 
 	var buf strings.Builder
 	for _, node := range nodes {
-		// Add p-scope and p-id to top-level elements
+		// Add p-scope, p-id, and p-for-key to top-level elements
 		if node.Type == html.ElementNode {
 			node.Attr = append(node.Attr, html.Attribute{Key: "p-scope", Val: pScopeVal})
 			pID, _ := generateRandom()
 			node.Attr = append(node.Attr, html.Attribute{Key: "p-id", Val: pID})
+			node.Attr = append(node.Attr, html.Attribute{Key: "p-for-key", Val: "s" + strconv.Itoa(scopeId) + ":" + strconv.Itoa(index)})
 		}
 
 		// Walk and process text nodes and attributes with brackets
@@ -1119,6 +1121,9 @@ func processLoopNode(node *html.Node, loopFence string) {
 		processLoopNode(child, loopFence)
 	}
 }
+
+// Global counter for loop scope IDs (supports nested loops)
+var loopScopeCounter int
 
 // processLoopTemplate processes loop body markup for use as a <template p-for> body.
 // It adds p-text, p-attr, p-on attributes and evaluates brackets (same as processLoopNode),
@@ -1260,6 +1265,10 @@ func evalControlTree(controlTree []control, scopeStack []scopeStackItem, props m
 			iterableVal := evalJS(ctrl.forCollection, fence)
 			items, ok := iterableVal.([]any)
 			if ok {
+				// Capture current loop scope ID and increment for next loop
+				currentScopeId := loopScopeCounter
+				loopScopeCounter++
+
 				if pattrEnabled {
 					// Emit <template p-for="..."> for Pattr loop reactivity
 					pForExpr := ctrl.forVar + " of " + ctrl.forCollection
@@ -1283,7 +1292,7 @@ func evalControlTree(controlTree []control, scopeStack []scopeStackItem, props m
 					markupBuilder.WriteString("</template>")
 				}
 
-				for _, item := range items {
+				for idx, item := range items {
 					newProps := make(map[string]any)
 					for k, v := range props {
 						newProps[k] = v
@@ -1293,8 +1302,8 @@ func evalControlTree(controlTree []control, scopeStack []scopeStackItem, props m
 					loopFence := fence + "\nlet " + ctrl.forVar + " = " + anyToString(item) + ";"
 					markup, newScopeStack := evalControlTree(ctrl.children, scopeStack, newProps, pScopeExp, loopFence, components, pattrEnabled)
 					if pattrEnabled {
-						// Process iteration: add p-text, p-attr, p-scope, p-id, then evaluate brackets
-						markup = processLoopIteration(markup, loopFence, ctrl.forVar, item)
+						// Process iteration: add p-text, p-attr, p-scope, p-id, p-for-key, then evaluate brackets
+						markup = processLoopIteration(markup, loopFence, ctrl.forVar, item, currentScopeId, idx)
 					} else {
 						// SSR-only: just evaluate all brackets with the loop fence
 						markup = evalAllBrackets(markup, loopFence)
