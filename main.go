@@ -1010,8 +1010,16 @@ func evalControlTree(controlTree []control, scopeStack []scopeStackItem, props m
 				// Process else-if statements
 				for _, child := range ctrl.children {
 					if child.isElseIfStmt {
+						// Build condition: !(prev1) && !(prev2) && ... && currentCondition
+						negatedConditions := []string{}
+						for _, cond := range collectIfConditions {
+							negatedConditions = append(negatedConditions, "!("+cond+")")
+						}
+						// Add the current else-if condition
+						fullCondition := strings.Join(negatedConditions, " && ") + " && " + child.elseIfCondition
+
 						elseIfMarkup, newScopeStack := evalControlTree(child.children, scopeStack, props, pScopeExp, fence, components, pattrEnabled)
-						elseIfMarkupWithPShow, err := addPShowAttribute(elseIfMarkup, child.elseIfCondition)
+						elseIfMarkupWithPShow, err := addPShowAttribute(elseIfMarkup, fullCondition)
 						if err == nil {
 							markupBuilder.WriteString(elseIfMarkupWithPShow)
 							scopeStack = newScopeStack
@@ -1020,7 +1028,7 @@ func evalControlTree(controlTree []control, scopeStack []scopeStackItem, props m
 					}
 				}
 
-				// Process else statement with negated conditions
+				// Process else statement with all negated conditions
 				for _, child := range ctrl.children {
 					if child.isElseStmt {
 						// Build negated condition: !(cond1) && !(cond2) && ...
