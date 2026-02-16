@@ -66,7 +66,7 @@ let new_animal = "";
 					{/if}
 					<div class="type-{animal}">{name} likes: {animal}s</div>
 					<div>Backwards: s{animal.split('').reverse().join('')}</div>
-					<button p-on:click="animals = animals.filter(a => a !== animal)">Remove {animal}</button>
+					<button onclick="{animals = animals.filter(a => a !== animal)}">Remove {animal}</button>
 					<br><br>
 				{/for}
 				{for var i of ["word", "up", "my", "homie"]}
@@ -76,7 +76,8 @@ let new_animal = "";
 			<div>
 				<h3>Add new animal:</h3>
 				<input type="text" placeholder="animal name" p-model="new_animal">
-				<button p-on:click="animals = [new_animal, ...animals]; new_animal = '';">Submit</button>
+				<button onclick="{animals = [new_animal, ...animals]; new_animal = '';}">Submit</button>
+				<button onclick="alert('hi ' + {new_animal})">alert</button>
 			</div>
 		</main>
 	</body>

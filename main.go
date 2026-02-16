@@ -405,12 +405,9 @@ func traverse(node *html.Node, scopedElements []scopedElement, fence string) (*h
 				if strings.Contains(attr.Val, "{") && strings.Contains(attr.Val, "}") {
 					if attr.Key != "p-text" && attr.Key != "p-scope" && !strings.HasPrefix(attr.Key, "p-attr") && !strings.HasPrefix(attr.Key, "p-on") {
 						if strings.HasPrefix(attr.Key, "on") {
-							// Event handler: convert onclick="{expr}" to p-on:click="expr"
+							// Event handler: convert onclick="{expr}" or onclick="alert({var})" to p-on:click="expr"
 							eventName := attr.Key[2:]
-							expr := strings.TrimSpace(attr.Val)
-							if strings.HasPrefix(expr, "{") && strings.HasSuffix(expr, "}") {
-								expr = expr[1 : len(expr)-1]
-							}
+							expr := processEventHandler(attr.Val)
 							node.Attr = append(node.Attr, html.Attribute{
 								Key: "p-on:" + eventName,
 								Val: expr,
@@ -1095,12 +1092,9 @@ func processLoopNode(node *html.Node, loopFence string) {
 			if strings.Contains(attr.Val, "{") && strings.Contains(attr.Val, "}") {
 				if attr.Key != "p-text" && attr.Key != "p-scope" && !strings.HasPrefix(attr.Key, "p-attr") && !strings.HasPrefix(attr.Key, "p-on") {
 					if strings.HasPrefix(attr.Key, "on") {
-						// Event handler: convert onclick="{expr}" to p-on:click="expr"
+						// Event handler: convert onclick="{expr}" or onclick="alert({var})" to p-on:click="expr"
 						eventName := attr.Key[2:]
-						expr := strings.TrimSpace(attr.Val)
-						if strings.HasPrefix(expr, "{") && strings.HasSuffix(expr, "}") {
-							expr = expr[1 : len(expr)-1]
-						}
+						expr := processEventHandler(attr.Val)
 						node.Attr = append(node.Attr, html.Attribute{
 							Key: "p-on:" + eventName,
 							Val: expr,
@@ -1489,6 +1483,20 @@ func isBoolAndTrue(value any) bool {
 		return true
 	}
 	return false
+}
+
+// processEventHandler converts inline event handlers like onclick="{expr}" or onclick="alert({var})"
+// to p-on:event="expr" format, removing curly braces from template expressions
+func processEventHandler(attrVal string) string {
+	expr := strings.TrimSpace(attrVal)
+	// If the entire value is wrapped in {...}, extract just the inner expression
+	if strings.HasPrefix(expr, "{") && strings.HasSuffix(expr, "}") {
+		return expr[1 : len(expr)-1]
+	}
+	// Otherwise, replace all {var} patterns with just var within the value
+	// Use a regex to find all {...} patterns and replace with their contents
+	re := regexp.MustCompile(`\{(.*?)\}`)
+	return re.ReplaceAllString(expr, "${1}")
 }
 
 func copyFile(sourcePath, destPath string) {
