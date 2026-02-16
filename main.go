@@ -403,7 +403,7 @@ func traverse(node *html.Node, scopedElements []scopedElement, fence string) (*h
 					}
 				}
 				if strings.Contains(attr.Val, "{") && strings.Contains(attr.Val, "}") {
-					if attr.Key != "p-text" && attr.Key != "p-scope" && !strings.HasPrefix(attr.Key, "p-attr") && !strings.HasPrefix(attr.Key, "p-on") {
+					if attr.Key != "p-text" && attr.Key != "p-scope" && !strings.HasPrefix(attr.Key, "p-attr") && !strings.HasPrefix(attr.Key, "p-on") && attr.Key != "p-model" {
 						if strings.HasPrefix(attr.Key, "on") {
 							// Event handler: convert onclick="{expr}" or onclick="alert({var})" to p-on:click="expr"
 							eventName := attr.Key[2:]
@@ -413,6 +413,17 @@ func traverse(node *html.Node, scopedElements []scopedElement, fence string) (*h
 								Val: expr,
 							})
 							node.Attr[i].Val = ""
+						} else if attr.Key == "value" && node.Data == "input" {
+							// Input value: convert value="{variable}" to p-model="variable"
+							expr := strings.TrimSpace(attr.Val)
+							if strings.HasPrefix(expr, "{") && strings.HasSuffix(expr, "}") {
+								varName := expr[1 : len(expr)-1]
+								node.Attr = append(node.Attr, html.Attribute{
+									Key: "p-model",
+									Val: varName,
+								})
+							}
+							node.Attr[i].Val = evalAllBrackets(attr.Val, fence)
 						} else {
 							node.Attr = append(node.Attr, html.Attribute{
 								Key: "p-attr:" + attr.Key,
@@ -1090,7 +1101,7 @@ func processLoopNode(node *html.Node, loopFence string) {
 	if node.Type == html.ElementNode {
 		for i, attr := range node.Attr {
 			if strings.Contains(attr.Val, "{") && strings.Contains(attr.Val, "}") {
-				if attr.Key != "p-text" && attr.Key != "p-scope" && !strings.HasPrefix(attr.Key, "p-attr") && !strings.HasPrefix(attr.Key, "p-on") {
+				if attr.Key != "p-text" && attr.Key != "p-scope" && !strings.HasPrefix(attr.Key, "p-attr") && !strings.HasPrefix(attr.Key, "p-on") && attr.Key != "p-model" {
 					if strings.HasPrefix(attr.Key, "on") {
 						// Event handler: convert onclick="{expr}" or onclick="alert({var})" to p-on:click="expr"
 						eventName := attr.Key[2:]
@@ -1100,6 +1111,17 @@ func processLoopNode(node *html.Node, loopFence string) {
 							Val: expr,
 						})
 						node.Attr[i].Val = ""
+					} else if attr.Key == "value" && node.Data == "input" {
+						// Input value: convert value="{variable}" to p-model="variable"
+						expr := strings.TrimSpace(attr.Val)
+						if strings.HasPrefix(expr, "{") && strings.HasSuffix(expr, "}") {
+							varName := expr[1 : len(expr)-1]
+							node.Attr = append(node.Attr, html.Attribute{
+								Key: "p-model",
+								Val: varName,
+							})
+						}
+						node.Attr[i].Val = evalAllBrackets(attr.Val, loopFence)
 					} else {
 						node.Attr = append(node.Attr, html.Attribute{
 							Key: "p-attr:" + attr.Key,

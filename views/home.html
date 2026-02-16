@@ -75,7 +75,7 @@ let new_animal = "";
 			</div>
 			<div>
 				<h3>Add new animal:</h3>
-				<input type="text" placeholder="animal name" p-model="new_animal">
+				<input type="text" placeholder="animal name" value="{new_animal}">
 				<button onclick="{animals = [new_animal, ...animals]; new_animal = '';}">Submit</button>
 				<button onclick="alert('hi ' + {new_animal})">alert</button>
 			</div>
