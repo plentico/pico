@@ -17,6 +17,7 @@ var salutation = "hola";
 
 let path = "./views/mycomp.html";
 let comp = "mycomp";
+let new_animal = "";
 ---
 
 <!DOCTYPE html>
@@ -65,7 +66,7 @@ let comp = "mycomp";
 					{/if}
 					<div class="type-{animal}">{name} likes: {animal}s</div>
 					<div>Backwards: s{animal.split('').reverse().join('')}</div>
-					<button onclick="{animals.filter(a => a !== animal)}">Remove {animal}</button>
+					<button p-on:click="animals = animals.filter(a => a !== animal)">Remove {animal}</button>
 					<br><br>
 				{/for}
 				{for var i of ["word", "up", "my", "homie"]}
@@ -74,8 +75,8 @@ let comp = "mycomp";
 			</div>
 			<div>
 				<h3>Add new animal:</h3>
-				<input type="text" placeholder="animal name">
-				<button onclick="{animals = ['new', ...animals]}">Submit</button>
+				<input type="text" placeholder="animal name" p-model="new_animal">
+				<button p-on:click="animals = [new_animal, ...animals]; new_animal = '';">Submit</button>
 			</div>
 		</main>
 	</body>
