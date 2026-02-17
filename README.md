@@ -10,43 +10,100 @@ Pico is a pure-Go, component-based templating system. It features scoped CSS, Ja
 - **Control Flow**: `{if}`, `{else if}`, `{else}`, and `{for}` loop constructs
 - **Component Composition**: Import and nest components with props
 - **Dynamic Components**: Render components dynamically using paths
-- **Built-in CMS (Temporary)**: Simple editor for testing purposes only (will be removed)
+- **Pattr Hydration**: Outputs attributes for client-side reactivity with [Pattr](https://github.com/plentico/pattr)
 
 ## Installation
 
 ```bash
-go mod download
-go build -o pico
+go build
 ```
 
-## Usage
+## Quick Start
 
 ```bash
+# Clone the test site for examples and e2e tests
+git clone https://github.com/plentico/pico-tests ../pico-tests
+
+# Build pico
 go build
-./pico render example/views/home.html example/props.json
+
+# Render the test site
+./pico render -output ../pico-tests/public ../pico-tests/site/views/home.html ../pico-tests/site/props.json
+
+# Serve it
 ./pico serve
+
+# Run e2e tests
+./pico test
 ```
 
 Then visit `http://localhost:3000` in your browser.
 
-## WIP Project Structure (for manual testing)
+## CLI Commands
 
 ```
-.
-├── main.go              # Application entry point and rendering engine
-├── go.mod               # Go module dependencies
-├── views/               # Component templates
-│   ├── home.html        # Root page component
-│   ├── head.html        # HTML head component
-│   ├── age.html         # Example component with conditionals
-│   ├── age_button.html  # Button component
-│   ├── todos.html       # Component fetching external data
-│   ├── mycomp.html      # Simple component example
-│   ├── double.html      # Helper component
-│   ├── cms.js           # CMS interface JavaScript
-│   └── cms.css          # CMS interface styles
-└── public/              # Generated static output (auto-created)
+pico <command> [options]
+
+Commands:
+  render <template> [props.json]  Render a template to HTML/CSS/JS
+  serve                           Start a local development server
+  test [dir]                      Run e2e tests from pico-tests repo
+  version                         Print version information
+  help                            Show this help message
+
+Render Options:
+  -props <file>       Path to JSON file containing props
+  -props-json <json>  JSON string containing props  
+  -output <dir>       Output directory (default: ./public)
+  -static <dir>       Static files directory to copy (auto-detects ./static)
+  -no-pattr           Disable Pattr hydration attributes
+
+Serve Options:
+  -dir <dir>          Directory to serve (default: ../pico-tests/public)
+  -port <port>        Port to serve on (default: 3000)
+
+Examples:
+  pico render ../pico-tests/site/views/home.html ../pico-tests/site/props.json
+  pico render -output ../pico-tests/public ../pico-tests/site/views/home.html ../pico-tests/site/props.json
+  pico serve                      # serves ../pico-tests/public
+  pico serve -port 8080
+  pico test                       # runs e2e tests from ../pico-tests
 ```
+
+## Library Usage
+
+Pico can be used as a Go library:
+
+```go
+import "github.com/plentico/pico/pkg/pico"
+
+// Render with props map
+markup, script, style := pico.RenderRoot("template.html", props)
+
+// Render with JSON file
+markup, script, style, err := pico.RenderRootFromJSON("template.html", "props.json")
+
+// Render with JSON string
+markup, script, style, err := pico.RenderRootFromJSONString("template.html", `{"name": "World"}`)
+```
+
+## Project Structure
+
+```
+pico/
+├── main.go              # CLI entry point
+├── pkg/pico/            # Library package
+│   ├── pico.go          # Main exports (RenderRoot, etc.)
+│   ├── control.go       # Control flow (if/for/components)
+│   ├── html.go          # HTML parsing and scoping
+│   ├── css.go           # CSS scoping
+│   ├── js.go            # JS scoping
+│   └── util.go          # Utilities
+├── go.mod
+└── README.md
+```
+
+For example templates and e2e tests, see [pico-tests](https://github.com/plentico/pico-tests).
 
 ## Component Syntax
 
@@ -194,34 +251,11 @@ Render components dynamically by path:
 
 ```html
 ---
-let compPath = "./views/mycomp.html";
+let compPath = "./mycomp.html";
 ---
 
-<="./views/mycomp.html" {prop} />
+<="./mycomp.html" {prop} />
 <='{compPath}' />
-```
-
-## CMS Interface (temporary only)
-
-For now, Pico includes a simple built-in CMS for content editing. Eventually this will be removed and more robust CMS capabilities will be provided by the [Plenti](https://github.com/plentico/plenti) project.
-
-The CMS:
-
-- Automatically generates input fields from component props
-- Allows real-time editing of data
-- Can be toggled via a button
-
-To enable the CMS, include the CMS scripts and container in your component:
-
-```html
-<head>
-  <script defer src="/cms.js"></script>
-  <link rel="stylesheet" href="/cms.css">
-</head>
-<body>
-  <div id="plenti_cms"></div>
-  <button id="toggle_plenti_cms">Toggle CMS</button>
-</body>
 ```
 
 ## Dependencies
@@ -230,17 +264,15 @@ To enable the CMS, include the CMS scripts and container in your component:
 - [parse](https://github.com/tdewolff/parse) - CSS/JS parsers
 - [golang.org/x/net](https://golang.org/x/net) - HTML parser
 
-## Building
+## Output
 
-The application compiles components to static files in the `public/` directory:
+The CLI compiles components to static files:
 
 ```
 public/
-├── index.html    # Rendered HTML
+├── index.html    # Rendered HTML with Pattr attributes
 ├── style.css     # Scoped styles
-├── script.js     # Component scripts
-├── cms.js        # CMS interface (copied)
-└── cms.css       # CMS styles (copied)
+└── script.js     # Component scripts
 ```
 
 ## License
@@ -249,5 +281,6 @@ MIT License
 
 ## Related
 
+- [pico-tests](https://github.com/plentico/pico-tests) - Example site and e2e tests for Pico
 - [Plenti](https://github.com/plentico/plenti) - An SSG/CMS that currently uses Svelte templates, to be replaced by Pico templates once project reaches maturity
 - [Pattr](https://github.com/plentico/pattr) - An attribute-driven JS library that provides client-side reactivity

@@ -7,6 +7,7 @@ import (
 	"io/fs"
 	"net/http"
 	"os"
+	"os/exec"
 	"path/filepath"
 
 	"github.com/plentico/pico/pkg/pico"
@@ -25,7 +26,7 @@ func main() {
 	noPattr := renderCmd.Bool("no-pattr", false, "Disable Pattr hydration attributes")
 
 	// Serve command flags
-	serveDir := serveCmd.String("dir", "./public", "Directory to serve")
+	serveDir := serveCmd.String("dir", "", "Directory to serve (default: ../pico-tests/public or ./public)")
 	port := serveCmd.String("port", "3000", "Port to serve on")
 
 	if len(os.Args) < 2 {
@@ -52,7 +53,23 @@ func main() {
 
 	case "serve":
 		serveCmd.Parse(os.Args[2:])
-		runServe(*serveDir, *port)
+		dir := *serveDir
+		if dir == "" {
+			// Default to pico-tests/public if it exists, otherwise ./public
+			if _, err := os.Stat("../pico-tests/public"); err == nil {
+				dir = "../pico-tests/public"
+			} else {
+				dir = "./public"
+			}
+		}
+		runServe(dir, *port)
+
+	case "test":
+		testDir := "../pico-tests"
+		if len(os.Args) >= 3 {
+			testDir = os.Args[2]
+		}
+		runTests(testDir)
 
 	case "version":
 		fmt.Println("pico version 0.1.0")
@@ -90,11 +107,15 @@ Usage:
 Commands:
   render <template> [props.json]  Render a template to HTML/CSS/JS
   serve                           Start a local development server
+  test [dir]                      Run e2e tests from pico-tests repo
   version                         Print version information
   help                            Show this help message
 
 Quick Usage:
   pico <template> [props.json]    Shorthand for 'pico render'
+
+Test Site (download from https://github.com/plentico/pico-tests):
+  git clone https://github.com/plentico/pico-tests ../pico-tests
 
 Render Options:
   -props <file>       Path to JSON file containing props
@@ -104,14 +125,18 @@ Render Options:
   -no-pattr           Disable Pattr hydration attributes
 
 Serve Options:
-  -dir <dir>          Directory to serve (default: ./public)
+  -dir <dir>          Directory to serve (default: ../pico-tests/public)
   -port <port>        Port to serve on (default: 3000)
 
+Test Options:
+  [dir]               Path to pico-tests repo (default: ../pico-tests)
+
 Examples:
-  pico render views/home.html props.json
-  pico render views/home.html -props-json '{"name":"World"}'
-  pico views/home.html props.json
+  pico render ../pico-tests/site/views/home.html ../pico-tests/site/props.json
+  pico render -output ../pico-tests/public ../pico-tests/site/views/home.html ../pico-tests/site/props.json
+  pico serve                      # serves ../pico-tests/public
   pico serve -port 8080
+  pico test                       # runs e2e tests from ../pico-tests
 
 Library Usage (Go):
   import "github.com/plentico/pico/pkg/pico"
@@ -222,6 +247,32 @@ func copyDir(src, dst string) error {
 		}
 		return os.WriteFile(dstPath, srcFile, info.Mode())
 	})
+}
+
+func runTests(testDir string) {
+	// Check if test directory exists
+	if _, err := os.Stat(testDir); os.IsNotExist(err) {
+		fmt.Printf("Test directory not found: %s\n", testDir)
+		fmt.Println("Clone the pico-tests repo:")
+		fmt.Println("  git clone https://github.com/plentico/pico-tests ../pico-tests")
+		os.Exit(1)
+	}
+
+	fmt.Printf("Running tests from %s...\n", testDir)
+
+	// Run go test in the e2e directory
+	cmd := exec.Command("go", "test", "./e2e/...", "-v")
+	cmd.Dir = testDir
+	cmd.Stdout = os.Stdout
+	cmd.Stderr = os.Stderr
+
+	if err := cmd.Run(); err != nil {
+		if exitErr, ok := err.(*exec.ExitError); ok {
+			os.Exit(exitErr.ExitCode())
+		}
+		fmt.Printf("Error running tests: %v\n", err)
+		os.Exit(1)
+	}
 }
 
 func runServe(dir, port string) {
