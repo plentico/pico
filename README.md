@@ -22,7 +22,9 @@ go build -o pico
 ## Usage
 
 ```bash
-go run main.go
+go build
+./pico render example/views/home.html example/props.json
+./pico serve
 ```
 
 Then visit `http://localhost:3000` in your browser.

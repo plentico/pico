@@ -1,7 +1,7 @@
 ---
 import Age from "age.html";
 import Head from "./head.html";
-import Todos from "/views/todos.html";
+import Todos from "./todos.html";
 import AgeButton from "age_button.html";
 
 prop name;
@@ -15,7 +15,7 @@ let title = "Pico";
 var salutation = "hola";
 //var salutation;
 
-let path = "./views/mycomp.html";
+let path = "./mycomp.html";
 let comp = "mycomp";
 let new_animal = "";
 ---
@@ -53,9 +53,9 @@ let new_animal = "";
 				<Todos number={7 - 2} />
 			{/if}
 
-			<="./views/mycomp.html" {age} />
+			<="./mycomp.html" {age} />
 			<='{path}' />
-			<="./views/{comp}.html" age={age + 1} />
+			<="./{comp}.html" age={age + 1} />
 
 			<div class="animals">
 				{for let animal of ["new animal", ...animals]}
