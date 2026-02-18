@@ -15,18 +15,12 @@ import (
 
 func main() {
 	// Define subcommands
-	renderCmd := flag.NewFlagSet("render", flag.ExitOnError)
 	serveCmd := flag.NewFlagSet("serve", flag.ExitOnError)
-
-	// Render command flags
-	propsFile := renderCmd.String("props", "", "Path to JSON file containing props")
-	propsJSON := renderCmd.String("props-json", "", "JSON string containing props")
-	outputDir := renderCmd.String("output", "./public", "Output directory for rendered files")
-	staticDir := renderCmd.String("static", "", "Static files directory to copy (default: auto-detect ./static relative to template)")
-	noPattr := renderCmd.Bool("no-pattr", false, "Disable Pattr hydration attributes")
 
 	// Serve command flags
 	serveDir := serveCmd.String("dir", "", "Directory to serve (default: ../pico-tests/public or ./public)")
+	serveTemplate := serveCmd.String("template", "", "Template to render before serving")
+	serveProps := serveCmd.String("props", "", "Props file for template")
 	port := serveCmd.String("port", "3000", "Port to serve on")
 
 	if len(os.Args) < 2 {
@@ -36,27 +30,57 @@ func main() {
 
 	switch os.Args[1] {
 	case "render":
-		renderCmd.Parse(os.Args[2:])
-		args := renderCmd.Args()
-		if len(args) < 1 {
+		// Parse arguments: allow flags before OR after positional args
+		// pico render <template> [props.json] [--output dir]
+		// pico render --output dir <template> [props.json]
+		templatePath, propsPath, output, static, noPattr := parseRenderArgs(os.Args[2:])
+		if templatePath == "" {
 			fmt.Println("Error: template path required")
-			fmt.Println("Usage: pico render [options] <template>")
+			fmt.Println("Usage: pico render <template> [props.json] [--output dir]")
 			os.Exit(1)
 		}
-		templatePath := args[0]
-		// Allow props file as second positional argument if -props flag not used
-		propsPath := *propsFile
-		if propsPath == "" && len(args) >= 2 {
-			propsPath = args[1]
-		}
-		runRender(templatePath, propsPath, *propsJSON, *outputDir, *staticDir, *noPattr)
+		runRender(templatePath, propsPath, "", output, static, noPattr)
 
 	case "serve":
 		serveCmd.Parse(os.Args[2:])
 		dir := *serveDir
+		template := *serveTemplate
+		props := *serveProps
+
+		// Determine if we should auto-render:
+		// - Only if --dir is NOT passed AND ./public doesn't exist locally
+		// - AND pico-tests structure is detected
+		localPublicExists := false
+		if _, err := os.Stat("./public"); err == nil {
+			localPublicExists = true
+		}
+
+		shouldAutoRender := dir == "" && !localPublicExists && template == ""
+
+		// Auto-detect pico-tests structure for auto-render
+		if shouldAutoRender {
+			if _, err := os.Stat("../pico-tests/site/views/home.pico"); err == nil {
+				template = "../pico-tests/site/views/home.pico"
+				props = "../pico-tests/site/props.json"
+				dir = "../pico-tests/public"
+			}
+		}
+
+		// If we have a template (auto-detected or explicitly passed), render first
+		if template != "" {
+			if dir == "" {
+				dir = "./public"
+			}
+			fmt.Println("Rendering template before serving...")
+			runRender(template, props, "", dir, "", false)
+			fmt.Println()
+		}
+
+		// Determine serve directory
 		if dir == "" {
-			// Default to pico-tests/public if it exists, otherwise ./public
-			if _, err := os.Stat("../pico-tests/public"); err == nil {
+			if localPublicExists {
+				dir = "./public"
+			} else if _, err := os.Stat("../pico-tests/public"); err == nil {
 				dir = "../pico-tests/public"
 			} else {
 				dir = "./public"
@@ -98,6 +122,53 @@ func startsWithDash(s string) bool {
 	return len(s) > 0 && s[0] == '-'
 }
 
+// parseRenderArgs parses render command arguments, allowing flags before or after positional args
+// Returns: templatePath, propsPath, outputDir, staticDir, noPattr
+func parseRenderArgs(args []string) (string, string, string, string, bool) {
+	var templatePath, propsPath string
+	outputDir := "./public"
+	staticDir := ""
+	noPattr := false
+
+	var positionalArgs []string
+
+	for i := 0; i < len(args); i++ {
+		arg := args[i]
+		switch {
+		case arg == "--output" || arg == "-output":
+			if i+1 < len(args) {
+				outputDir = args[i+1]
+				i++
+			}
+		case arg == "--static" || arg == "-static":
+			if i+1 < len(args) {
+				staticDir = args[i+1]
+				i++
+			}
+		case arg == "--no-pattr" || arg == "-no-pattr":
+			noPattr = true
+		case arg == "--props" || arg == "-props":
+			if i+1 < len(args) {
+				propsPath = args[i+1]
+				i++
+			}
+		case startsWithDash(arg):
+			// Unknown flag, skip
+		default:
+			positionalArgs = append(positionalArgs, arg)
+		}
+	}
+
+	if len(positionalArgs) >= 1 {
+		templatePath = positionalArgs[0]
+	}
+	if len(positionalArgs) >= 2 && propsPath == "" {
+		propsPath = positionalArgs[1]
+	}
+
+	return templatePath, propsPath, outputDir, staticDir, noPattr
+}
+
 func printUsage() {
 	fmt.Println(`Pico - A template rendering engine with reactive UI support
 
@@ -118,24 +189,33 @@ Test Site (download from https://github.com/plentico/pico-tests):
   git clone https://github.com/plentico/pico-tests ../pico-tests
 
 Render Options:
-  -props <file>       Path to JSON file containing props
-  -props-json <json>  JSON string containing props  
-  -output <dir>       Output directory (default: ./public)
-  -static <dir>       Static files directory to copy (auto-detects ./static)
-  -no-pattr           Disable Pattr hydration attributes
+  <template>          Path to template file (required)
+  [props.json]        Path to JSON file containing props (optional)
+  --output <dir>      Output directory (default: ./public)
+  --static <dir>      Static files directory to copy (auto-detects ./static)
+  --no-pattr          Disable Pattr hydration attributes
+
+  Note: Flags can be placed before OR after positional arguments.
 
 Serve Options:
-  -dir <dir>          Directory to serve (default: ../pico-tests/public)
-  -port <port>        Port to serve on (default: 3000)
+  --dir <dir>         Directory to serve (skips auto-render)
+  --port <port>       Port to serve on (default: 3000)
+  --template <file>   Template to render before serving
+  --props <file>      Props file for template
+
+  Serve Priority:
+    1. If --dir is passed → serve that directory (no auto-render)
+    2. If ./public exists → serve ./public (no auto-render)
+    3. If pico-tests detected → auto-render and serve ../pico-tests/public
 
 Test Options:
   [dir]               Path to pico-tests repo (default: ../pico-tests)
 
 Examples:
-  pico render ../pico-tests/site/views/home.html ../pico-tests/site/props.json
-  pico render -output ../pico-tests/public ../pico-tests/site/views/home.html ../pico-tests/site/props.json
-  pico serve                      # serves ../pico-tests/public
-  pico serve -port 8080
+  pico render views/home.pico props.json --output ./public
+  pico render views/home.pico props.json
+  pico serve                      # auto-renders and serves pico-tests
+  pico serve --port 8080
   pico test                       # runs e2e tests from ../pico-tests
 
 Library Usage (Go):
