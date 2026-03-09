@@ -124,7 +124,7 @@ func isVoidElement(a atom.Atom) bool {
 	}
 }
 
-func scopeHTML(markup string, props map[string]any, pScopeExp string, fence string) (string, []scopedElement) {
+func scopeHTML(markup string, props map[string]any, pScopeExp string, fence string, usePattr bool) (string, []scopedElement) {
 	scopedElements := []scopedElement{}
 	var markupBuilder strings.Builder
 
@@ -162,7 +162,7 @@ func scopeHTML(markup string, props map[string]any, pScopeExp string, fence stri
 			}
 		}
 
-		if node.Type == html.ElementNode && (len(props) > 0 || pScopeExp != "") {
+		if usePattr && node.Type == html.ElementNode && (len(props) > 0 || pScopeExp != "") {
 			if node.Data != "html" {
 				pScopeExp = flattenCompArgs(props) + pScopeExp
 			}
@@ -171,7 +171,7 @@ func scopeHTML(markup string, props map[string]any, pScopeExp string, fence stri
 			node.Attr = append(node.Attr, html.Attribute{Key: "p-id", Val: pID})
 		}
 
-		node, scopedElements = traverse(node, scopedElements, fence)
+		node, scopedElements = traverse(node, scopedElements, fence, usePattr)
 
 		if err := html.Render(&markupBuilder, node); err != nil {
 			log.Fatal(err)
@@ -181,7 +181,7 @@ func scopeHTML(markup string, props map[string]any, pScopeExp string, fence stri
 	return markupBuilder.String(), scopedElements
 }
 
-func traverse(node *html.Node, scopedElements []scopedElement, fence string) (*html.Node, []scopedElement) {
+func traverse(node *html.Node, scopedElements []scopedElement, fence string, usePattr bool) (*html.Node, []scopedElement) {
 	var traverseFunc func(*html.Node)
 	traverseFunc = func(node *html.Node) {
 		if node.Type == html.TextNode {
@@ -193,11 +193,13 @@ func traverse(node *html.Node, scopedElements []scopedElement, fence string) (*h
 						}
 					}
 				}
-				attr := html.Attribute{
-					Key: "p-text",
-					Val: "`" + strings.ReplaceAll(strings.ReplaceAll(node.Data, "{", "${"), "\"", "'") + "`",
+				if usePattr {
+					attr := html.Attribute{
+						Key: "p-text",
+						Val: "`" + strings.ReplaceAll(strings.ReplaceAll(node.Data, "{", "${"), "\"", "'") + "`",
+					}
+					node.Parent.Attr = append(node.Parent.Attr, attr)
 				}
-				node.Parent.Attr = append(node.Parent.Attr, attr)
 			}
 			node.Data = evalAllBrackets(node.Data, fence)
 		}
@@ -237,26 +239,32 @@ func traverse(node *html.Node, scopedElements []scopedElement, fence string) (*h
 						if strings.HasPrefix(attr.Key, "on") {
 							eventName := attr.Key[2:]
 							expr := processEventHandler(attr.Val)
-							node.Attr = append(node.Attr, html.Attribute{
-								Key: "p-on:" + eventName,
-								Val: expr,
-							})
+							if usePattr {
+								node.Attr = append(node.Attr, html.Attribute{
+									Key: "p-on:" + eventName,
+									Val: expr,
+								})
+							}
 							node.Attr[i].Val = ""
 						} else if attr.Key == "value" && node.Data == "input" {
 							expr := strings.TrimSpace(attr.Val)
 							if strings.HasPrefix(expr, "{") && strings.HasSuffix(expr, "}") {
 								varName := expr[1 : len(expr)-1]
-								node.Attr = append(node.Attr, html.Attribute{
-									Key: "p-model",
-									Val: varName,
-								})
+								if usePattr {
+									node.Attr = append(node.Attr, html.Attribute{
+										Key: "p-model",
+										Val: varName,
+									})
+								}
 							}
 							node.Attr[i].Val = evalAllBrackets(attr.Val, fence)
 						} else {
-							node.Attr = append(node.Attr, html.Attribute{
-								Key: "p-attr:" + attr.Key,
-								Val: "`" + strings.ReplaceAll(strings.ReplaceAll(attr.Val, "{", "${"), "\"", "'") + "`",
-							})
+							if usePattr {
+								node.Attr = append(node.Attr, html.Attribute{
+									Key: "p-attr:" + attr.Key,
+									Val: "`" + strings.ReplaceAll(strings.ReplaceAll(attr.Val, "{", "${"), "\"", "'") + "`",
+								})
+							}
 							node.Attr[i].Val = evalAllBrackets(attr.Val, fence)
 						}
 					}
@@ -283,7 +291,7 @@ func traverse(node *html.Node, scopedElements []scopedElement, fence string) (*h
 	return node, scopedElements
 }
 
-func processLoopIteration(markup string, loopFence string, forVar string, item any, scopeId int, index int) string {
+func processLoopIteration(markup string, loopFence string, forVar string, item any, scopeId int, index int, usePattr bool) string {
 	nodes, err := parseNoFix(markup)
 	if err != nil {
 		return markup
@@ -293,14 +301,14 @@ func processLoopIteration(markup string, loopFence string, forVar string, item a
 
 	var buf strings.Builder
 	for _, node := range nodes {
-		if node.Type == html.ElementNode {
+		if usePattr && node.Type == html.ElementNode {
 			node.Attr = append(node.Attr, html.Attribute{Key: "p-scope", Val: pScopeVal})
 			pID, _ := generateRandom()
 			node.Attr = append(node.Attr, html.Attribute{Key: "p-id", Val: pID})
 			node.Attr = append(node.Attr, html.Attribute{Key: "p-for-key", Val: "s" + strconv.Itoa(scopeId) + ":" + strconv.Itoa(index)})
 		}
 
-		processLoopNode(node, loopFence)
+		processLoopNode(node, loopFence, usePattr)
 
 		if err := html.Render(&buf, node); err != nil {
 			log.Fatal(err)
@@ -309,7 +317,7 @@ func processLoopIteration(markup string, loopFence string, forVar string, item a
 	return buf.String()
 }
 
-func processLoopNode(node *html.Node, loopFence string) {
+func processLoopNode(node *html.Node, loopFence string, usePattr bool) {
 	if node.Type == html.TextNode {
 		if strings.Contains(node.Data, "{") && strings.Contains(node.Data, "}") {
 			if p := node.Parent; p != nil && p.Data == "script" {
@@ -319,11 +327,13 @@ func processLoopNode(node *html.Node, loopFence string) {
 					}
 				}
 			}
-			attr := html.Attribute{
-				Key: "p-text",
-				Val: "`" + strings.ReplaceAll(strings.ReplaceAll(node.Data, "{", "${"), "\"", "'") + "`",
+			if usePattr {
+				attr := html.Attribute{
+					Key: "p-text",
+					Val: "`" + strings.ReplaceAll(strings.ReplaceAll(node.Data, "{", "${"), "\"", "'") + "`",
+				}
+				node.Parent.Attr = append(node.Parent.Attr, attr)
 			}
-			node.Parent.Attr = append(node.Parent.Attr, attr)
 		}
 		node.Data = evalAllBrackets(node.Data, loopFence)
 	}
@@ -334,26 +344,32 @@ func processLoopNode(node *html.Node, loopFence string) {
 					if strings.HasPrefix(attr.Key, "on") {
 						eventName := attr.Key[2:]
 						expr := processEventHandler(attr.Val)
-						node.Attr = append(node.Attr, html.Attribute{
-							Key: "p-on:" + eventName,
-							Val: expr,
-						})
+						if usePattr {
+							node.Attr = append(node.Attr, html.Attribute{
+								Key: "p-on:" + eventName,
+								Val: expr,
+							})
+						}
 						node.Attr[i].Val = ""
 					} else if attr.Key == "value" && node.Data == "input" {
 						expr := strings.TrimSpace(attr.Val)
 						if strings.HasPrefix(expr, "{") && strings.HasSuffix(expr, "}") {
 							varName := expr[1 : len(expr)-1]
-							node.Attr = append(node.Attr, html.Attribute{
-								Key: "p-model",
-								Val: varName,
-							})
+							if usePattr {
+								node.Attr = append(node.Attr, html.Attribute{
+									Key: "p-model",
+									Val: varName,
+								})
+							}
 						}
 						node.Attr[i].Val = evalAllBrackets(attr.Val, loopFence)
 					} else {
-						node.Attr = append(node.Attr, html.Attribute{
-							Key: "p-attr:" + attr.Key,
-							Val: "`" + strings.ReplaceAll(strings.ReplaceAll(attr.Val, "{", "${"), "\"", "'") + "`",
-						})
+						if usePattr {
+							node.Attr = append(node.Attr, html.Attribute{
+								Key: "p-attr:" + attr.Key,
+								Val: "`" + strings.ReplaceAll(strings.ReplaceAll(attr.Val, "{", "${"), "\"", "'") + "`",
+							})
+						}
 						node.Attr[i].Val = evalAllBrackets(attr.Val, loopFence)
 					}
 				}
@@ -361,11 +377,11 @@ func processLoopNode(node *html.Node, loopFence string) {
 		}
 	}
 	for child := node.FirstChild; child != nil; child = child.NextSibling {
-		processLoopNode(child, loopFence)
+		processLoopNode(child, loopFence, usePattr)
 	}
 }
 
-func processLoopTemplate(markup string, loopFence string) string {
+func processLoopTemplate(markup string, loopFence string, usePattr bool) string {
 	nodes, err := parseNoFix(markup)
 	if err != nil {
 		return markup
@@ -373,7 +389,7 @@ func processLoopTemplate(markup string, loopFence string) string {
 
 	var buf strings.Builder
 	for _, node := range nodes {
-		processLoopNode(node, loopFence)
+		processLoopNode(node, loopFence, usePattr)
 		if err := html.Render(&buf, node); err != nil {
 			log.Fatal(err)
 		}

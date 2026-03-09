@@ -70,7 +70,7 @@ func RenderRoot(path string, props map[string]any, noPattr ...bool) (string, str
 	}
 	markup, script, style, scopeStack, pScopeExp, fence := Render(path, props, []scopeStackItem{}, !usePattr)
 	// Create scoped classes and add to html
-	markup, scopedElements := scopeHTML(markup, props, pScopeExp, fence)
+	markup, scopedElements := scopeHTML(markup, props, pScopeExp, fence, usePattr)
 	scopeStack = append(scopeStack, scopeStackItem{
 		scopedElements: scopedElements,
 		style:          style,
@@ -132,7 +132,7 @@ func evalScopeStack(scopeStack []scopeStackItem) (string, string) {
 
 // addPShowAttribute adds p-show attribute to all top-level HTML elements
 // and adds style="display: none;" if the condition evaluates to false during SSR
-func addPShowAttribute(htmlStr string, showCondition string, fence string, usePreScope bool) (string, error) {
+func addPShowAttribute(htmlStr string, showCondition string, fence string, usePreScope bool, usePattr bool) (string, error) {
 	// Evaluate the condition during SSR
 	conditionResult := evalJS(showCondition, fence)
 	shouldShow := isBoolAndTrue(conditionResult)
@@ -146,23 +146,25 @@ func addPShowAttribute(htmlStr string, showCondition string, fence string, usePr
 	var buf strings.Builder
 	for _, node := range nodes {
 		if node.Type == html.ElementNode {
-			// Determine the attribute key based on whether this is a pre-scope or post-scope conditional
-			attrKey := "p-show"
-			if usePreScope {
-				attrKey = "p-show:pre-scope"
-			}
-
-			// Check if p-show attribute already exists
-			hasPShow := false
-			for _, attr := range node.Attr {
-				if attr.Key == "p-show" || attr.Key == "p-show:pre-scope" {
-					hasPShow = true
-					break
+			if usePattr {
+				// Determine the attribute key based on whether this is a pre-scope or post-scope conditional
+				attrKey := "p-show"
+				if usePreScope {
+					attrKey = "p-show:pre-scope"
 				}
-			}
-			// Add p-show if not present
-			if !hasPShow {
-				node.Attr = append(node.Attr, html.Attribute{Key: attrKey, Val: showCondition})
+
+				// Check if p-show attribute already exists
+				hasPShow := false
+				for _, attr := range node.Attr {
+					if attr.Key == "p-show" || attr.Key == "p-show:pre-scope" {
+						hasPShow = true
+						break
+					}
+				}
+				// Add p-show if not present
+				if !hasPShow {
+					node.Attr = append(node.Attr, html.Attribute{Key: attrKey, Val: showCondition})
+				}
 			}
 
 			// If condition is false during SSR, add display: none to prevent flash

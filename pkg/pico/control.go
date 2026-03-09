@@ -294,7 +294,7 @@ func evalControlTree(controlTree []control, scopeStack []scopeStackItem, props m
 
 				ifFullCondition := buildFullCondition(ctrl.ifCondition)
 				ifMarkup, newScopeStack := evalControlTree(ctrl.children, scopeStack, props, pScopeExp, fence, components, pattrEnabled, templateDir, ifFullCondition)
-				ifMarkupWithPShow, err := addPShowAttribute(ifMarkup, ifFullCondition, fence, usePreScope)
+				ifMarkupWithPShow, err := addPShowAttribute(ifMarkup, ifFullCondition, fence, usePreScope, pattrEnabled)
 				if err == nil {
 					markupBuilder.WriteString(ifMarkupWithPShow)
 					scopeStack = newScopeStack
@@ -311,7 +311,7 @@ func evalControlTree(controlTree []control, scopeStack []scopeStackItem, props m
 						fullCondition := buildFullCondition(currentCondition)
 
 						elseIfMarkup, newScopeStack := evalControlTree(child.children, scopeStack, props, pScopeExp, fence, components, pattrEnabled, templateDir, fullCondition)
-						elseIfMarkupWithPShow, err := addPShowAttribute(elseIfMarkup, fullCondition, fence, usePreScope)
+						elseIfMarkupWithPShow, err := addPShowAttribute(elseIfMarkup, fullCondition, fence, usePreScope, pattrEnabled)
 						if err == nil {
 							markupBuilder.WriteString(elseIfMarkupWithPShow)
 							scopeStack = newScopeStack
@@ -330,7 +330,7 @@ func evalControlTree(controlTree []control, scopeStack []scopeStackItem, props m
 						fullCondition := buildFullCondition(currentCondition)
 
 						elseMarkup, newScopeStack := evalControlTree(child.children, scopeStack, props, pScopeExp, fence, components, pattrEnabled, templateDir, fullCondition)
-						elseMarkupWithPShow, err := addPShowAttribute(elseMarkup, fullCondition, fence, usePreScope)
+						elseMarkupWithPShow, err := addPShowAttribute(elseMarkup, fullCondition, fence, usePreScope, pattrEnabled)
 						if err == nil {
 							markupBuilder.WriteString(elseMarkupWithPShow)
 							scopeStack = newScopeStack
@@ -388,7 +388,7 @@ func evalControlTree(controlTree []control, scopeStack []scopeStackItem, props m
 						templateNewProps[ctrl.forVar] = items[0]
 					}
 					templateMarkup, _ := evalControlTree(ctrl.children, scopeStack, templateNewProps, pScopeExp, templateLoopFence, components, pattrEnabled, templateDir)
-					templateMarkup = processLoopTemplate(templateMarkup, templateLoopFence)
+					templateMarkup = processLoopTemplate(templateMarkup, templateLoopFence, pattrEnabled)
 					markupBuilder.WriteString("<template p-for=\"" + html.EscapeString(pForExpr) + "\">")
 					markupBuilder.WriteString(templateMarkup)
 					markupBuilder.WriteString("</template>")
@@ -403,7 +403,7 @@ func evalControlTree(controlTree []control, scopeStack []scopeStackItem, props m
 					loopFence := fence + "\nlet " + ctrl.forVar + " = " + anyToString(item) + ";"
 					markup, newScopeStack := evalControlTree(ctrl.children, scopeStack, newProps, pScopeExp, loopFence, components, pattrEnabled, templateDir)
 					if pattrEnabled {
-						markup = processLoopIteration(markup, loopFence, ctrl.forVar, item, currentScopeId, idx)
+						markup = processLoopIteration(markup, loopFence, ctrl.forVar, item, currentScopeId, idx, pattrEnabled)
 					} else {
 						markup = evalAllBrackets(markup, loopFence)
 					}
@@ -423,7 +423,7 @@ func evalControlTree(controlTree []control, scopeStack []scopeStackItem, props m
 				}
 			}
 			markup, script, style, newScopeStack, newPScopeExp, newFence := Render(compPath, newProps, scopeStack, !pattrEnabled)
-			markup, scopedElements := scopeHTML(markup, ctrl.compProps, newPScopeExp, newFence)
+			markup, scopedElements := scopeHTML(markup, ctrl.compProps, newPScopeExp, newFence, pattrEnabled)
 			newScopeStack = append(newScopeStack, scopeStackItem{
 				scopedElements: scopedElements,
 				style:          style,
@@ -442,7 +442,7 @@ func evalControlTree(controlTree []control, scopeStack []scopeStackItem, props m
 				evaluatedCompPath = filepath.Join(templateDir, evaluatedCompPath)
 			}
 			markup, script, style, newScopeStack, newPScopeExp, newFence := Render(evaluatedCompPath, newProps, scopeStack, !pattrEnabled)
-			markup, scopedElements := scopeHTML(markup, ctrl.dynamicCompProps, newPScopeExp, newFence)
+			markup, scopedElements := scopeHTML(markup, ctrl.dynamicCompProps, newPScopeExp, newFence, pattrEnabled)
 			newScopeStack = append(newScopeStack, scopeStackItem{
 				scopedElements: scopedElements,
 				style:          style,
