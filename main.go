@@ -22,6 +22,7 @@ func main() {
 	serveTemplate := serveCmd.String("template", "", "Template to render before serving")
 	serveProps := serveCmd.String("props", "", "Props file for template")
 	port := serveCmd.String("port", "3000", "Port to serve on")
+	serveNoPattr := serveCmd.Bool("no-pattr", false, "Disable Pattr hydration attributes")
 
 	if len(os.Args) < 2 {
 		printUsage()
@@ -72,7 +73,7 @@ func main() {
 				dir = "./public"
 			}
 			fmt.Println("Rendering template before serving...")
-			runRender(template, props, "", dir, "", false)
+			runRender(template, props, "", dir, "", *serveNoPattr)
 			fmt.Println()
 		}
 
@@ -202,6 +203,7 @@ Serve Options:
   --port <port>       Port to serve on (default: 3000)
   --template <file>   Template to render before serving
   --props <file>      Props file for template
+  --no-pattr          Disable Pattr hydration attributes
 
   Serve Priority:
     1. If --dir is passed → serve that directory (no auto-render)
