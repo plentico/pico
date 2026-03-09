@@ -217,6 +217,9 @@ func traverse(node *html.Node, scopedElements []scopedElement, fence string, use
 				scopedClass = "plenti-" + randomStr
 			}
 
+			// Track attributes to remove
+			attrsToRemove := []int{}
+
 			for i, attr := range node.Attr {
 				if attr.Key == "id" {
 					id = attr.Val
@@ -245,7 +248,8 @@ func traverse(node *html.Node, scopedElements []scopedElement, fence string, use
 									Val: expr,
 								})
 							}
-							node.Attr[i].Val = ""
+							// Mark this attribute for removal
+							attrsToRemove = append(attrsToRemove, i)
 						} else if attr.Key == "value" && node.Data == "input" {
 							expr := strings.TrimSpace(attr.Val)
 							if strings.HasPrefix(expr, "{") && strings.HasSuffix(expr, "}") {
@@ -269,6 +273,12 @@ func traverse(node *html.Node, scopedElements []scopedElement, fence string, use
 						}
 					}
 				}
+			}
+
+			// Remove marked attributes (iterate backwards to maintain indices)
+			for i := len(attrsToRemove) - 1; i >= 0; i-- {
+				idx := attrsToRemove[i]
+				node.Attr = append(node.Attr[:idx], node.Attr[idx+1:]...)
 			}
 
 			if len(classes) == 0 {
@@ -338,6 +348,9 @@ func processLoopNode(node *html.Node, loopFence string, usePattr bool) {
 		node.Data = evalAllBrackets(node.Data, loopFence)
 	}
 	if node.Type == html.ElementNode {
+		// Track attributes to remove
+		attrsToRemove := []int{}
+
 		for i, attr := range node.Attr {
 			if strings.Contains(attr.Val, "{") && strings.Contains(attr.Val, "}") {
 				if attr.Key != "p-text" && attr.Key != "p-scope" && !strings.HasPrefix(attr.Key, "p-attr") && !strings.HasPrefix(attr.Key, "p-on") && attr.Key != "p-model" {
@@ -350,7 +363,8 @@ func processLoopNode(node *html.Node, loopFence string, usePattr bool) {
 								Val: expr,
 							})
 						}
-						node.Attr[i].Val = ""
+						// Mark this attribute for removal
+						attrsToRemove = append(attrsToRemove, i)
 					} else if attr.Key == "value" && node.Data == "input" {
 						expr := strings.TrimSpace(attr.Val)
 						if strings.HasPrefix(expr, "{") && strings.HasSuffix(expr, "}") {
@@ -374,6 +388,12 @@ func processLoopNode(node *html.Node, loopFence string, usePattr bool) {
 					}
 				}
 			}
+		}
+
+		// Remove marked attributes (iterate backwards to maintain indices)
+		for i := len(attrsToRemove) - 1; i >= 0; i-- {
+			idx := attrsToRemove[i]
+			node.Attr = append(node.Attr[:idx], node.Attr[idx+1:]...)
 		}
 	}
 	for child := node.FirstChild; child != nil; child = child.NextSibling {
