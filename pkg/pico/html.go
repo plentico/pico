@@ -167,8 +167,6 @@ func scopeHTML(markup string, props map[string]any, pScopeExp string, fence stri
 				pScopeExp = flattenCompArgs(props) + pScopeExp
 			}
 			node.Attr = append(node.Attr, html.Attribute{Key: "p-scope", Val: pScopeExp})
-			pID, _ := generateRandom()
-			node.Attr = append(node.Attr, html.Attribute{Key: "p-id", Val: pID})
 		}
 
 		node, scopedElements = traverse(node, scopedElements, fence, usePattr)
@@ -313,8 +311,6 @@ func processLoopIteration(markup string, loopFence string, forVar string, item a
 	for _, node := range nodes {
 		if usePattr && node.Type == html.ElementNode {
 			node.Attr = append(node.Attr, html.Attribute{Key: "p-scope", Val: pScopeVal})
-			pID, _ := generateRandom()
-			node.Attr = append(node.Attr, html.Attribute{Key: "p-id", Val: pID})
 			node.Attr = append(node.Attr, html.Attribute{Key: "p-for-key", Val: "s" + strconv.Itoa(scopeId) + ":" + strconv.Itoa(index)})
 		}
 
