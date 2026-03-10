@@ -223,8 +223,8 @@ Examples:
 Library Usage (Go):
   import "github.com/plentico/pico/pkg/pico"
   
-  markup, script, style := pico.RenderRoot("template.html", props)
-  markup, script, style, _ := pico.RenderRootFromJSON("template.html", "props.json")
+  markup, script, style := pico.RenderRoot("template.pico", props)
+  markup, script, style, _ := pico.RenderRootFromJSON("template.pico", "props.json")
 `)
 }
 
