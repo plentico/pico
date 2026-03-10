@@ -168,6 +168,8 @@ Scoped CSS that only applies to this component:
 </style>
 ```
 
+You can define global CSS selectors using the `*` symbol, see details here: [Global CSS](docs/GLOBAL_CSS_FEATURE.md)
+
 ### 4. Script - `<script>`
 
 Component-specific JavaScript with scoped element selectors:
