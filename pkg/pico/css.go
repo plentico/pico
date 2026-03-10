@@ -67,7 +67,11 @@ func findRulesetScopedClass(allSelectors [][]css.Token, lastValues []css.Token, 
 					}
 				}
 			} else if val.TokenType == css.HashToken {
-				sc := getScopedClass(string(val.Data), "id", scopedElements)
+				idValue := string(val.Data)
+				if len(idValue) > 0 && idValue[0] == '#' {
+					idValue = idValue[1:]
+				}
+				sc := getScopedClass(idValue, "id", scopedElements)
 				if sc != "" {
 					return sc
 				}
@@ -126,12 +130,16 @@ func outputScopedValues(values []css.Token, scopedElements []scopedElement, out 
 
 		if val.TokenType == css.HashToken {
 			if !isGlobal {
-				scopedClass := getScopedClass(string(val.Data), "id", scopedElements)
+				idValue := string(val.Data)
+				if len(idValue) > 0 && idValue[0] == '#' {
+					idValue = idValue[1:]
+				}
+				scopedClass := getScopedClass(idValue, "id", scopedElements)
 				if scopedClass == "" {
 					scopedClass = fallbackScopedClass
 				}
 				if scopedClass != "" {
-					out.WriteString(string(val.Data) + "." + scopedClass)
+					out.WriteString("#" + idValue + "." + scopedClass)
 				} else {
 					out.Write(val.Data)
 				}
@@ -448,9 +456,13 @@ func scopeCSS(style string, scopedElements []scopedElement) string {
 				if val.TokenType == css.HashToken {
 					// ID selector (#id)
 					if !isGlobal {
-						scopedClass := getScopedClass(string(val.Data), "id", scopedElements)
+						idValue := string(val.Data)
+						if len(idValue) > 0 && idValue[0] == '#' {
+							idValue = idValue[1:]
+						}
+						scopedClass := getScopedClass(idValue, "id", scopedElements)
 						if scopedClass != "" {
-							out.WriteString(string(val.Data) + "." + scopedClass)
+							out.WriteString("#" + idValue + "." + scopedClass)
 						} else {
 							out.Write(val.Data)
 						}
