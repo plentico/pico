@@ -171,7 +171,7 @@ func parseRenderArgs(args []string) (string, string, string, string, bool) {
 }
 
 func printUsage() {
-	fmt.Println(`Pico - A template rendering engine with reactive UI support
+	fmt.Print(`Pico - A template rendering engine with reactive UI support
 
 Usage:
   pico <command> [options]
