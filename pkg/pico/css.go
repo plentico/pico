@@ -199,109 +199,165 @@ func isSingleSimpleSelector(values []css.Token) bool {
 	return true
 }
 
-// checkSingleSelectorUsed checks if a single selector (one set of tokens) has a used root element
-func checkSingleSelectorUsed(values []css.Token, scopedElements []scopedElement) bool {
-	// Check for universal selector or attribute selector
-	for i, val := range values {
-		if val.TokenType == css.DelimToken && string(val.Data) == "*" {
-			isGlobalMarker := false
-			if i < len(values)-1 {
-				nextToken := values[i+1]
-				if nextToken.TokenType == css.IdentToken || nextToken.TokenType == css.HashToken {
-					isGlobalMarker = true
-				} else if nextToken.TokenType == css.DelimToken && string(nextToken.Data) == "." {
-					isGlobalMarker = true
-				}
-			}
-			if !isGlobalMarker {
-				return true // Universal selector
-			}
-		}
-		if val.TokenType == css.LeftBracketToken {
-			return true // Attribute selector
-		}
-	}
+// parseSelectorParts extracts all selector parts from a token sequence
+// Returns a list of selector parts, where each part has the selector value and type
+// For chained classes like .a.b, it returns combined class requirements
+func parseSelectorParts(values []css.Token) []selectorPart {
+	var parts []selectorPart
+	inAttributeSelector := false
 
-	for i, val := range values {
+	for i := 0; i < len(values); i++ {
+		val := values[i]
+
+		// If we're inside an attribute selector, skip until we hit the closing bracket
+		if inAttributeSelector {
+			if val.TokenType == css.RightBracketToken {
+				inAttributeSelector = false
+			}
+			continue
+		}
+
+		// Skip whitespace, combinators, delimiters (except . for class), and pseudo-selectors
+		if val.TokenType == css.WhitespaceToken {
+			continue
+		}
+		if val.TokenType == css.DelimToken {
+			d := string(val.Data)
+			// Skip combinators
+			if d == ">" || d == "+" || d == "~" {
+				continue
+			}
+			// Handle universal selector
+			if d == "*" {
+				parts = append(parts, selectorPart{isUniversal: true})
+				continue
+			}
+			// Handle class selector start
+			if d == "." && i < len(values)-1 && values[i+1].TokenType == css.IdentToken {
+				// Check for chained classes: .a.b
+				classNames := []string{string(values[i+1].Data)}
+				j := i + 2
+				for j < len(values) && values[j].TokenType == css.DelimToken && string(values[j].Data) == "." {
+					if j+1 < len(values) && values[j+1].TokenType == css.IdentToken {
+						classNames = append(classNames, string(values[j+1].Data))
+						j += 2
+					} else {
+						break
+					}
+				}
+				parts = append(parts, selectorPart{
+					classes: classNames,
+					isClass: true,
+				})
+				i = j - 1 // Skip processed tokens
+				continue
+			}
+			continue
+		}
+		if val.TokenType == css.ColonToken {
+			// Skip pseudo-selectors and their values
+			if i < len(values)-1 && (values[i+1].TokenType == css.IdentToken || values[i+1].TokenType == css.FunctionToken) {
+				i++ // Skip the pseudo-selector name
+			}
+			continue
+		}
+
 		if val.TokenType == css.HashToken {
 			idValue := string(val.Data)
 			if len(idValue) > 0 && idValue[0] == '#' {
 				idValue = idValue[1:]
 			}
-			if isSelectorUsed("id", idValue, scopedElements) {
-				return true
-			}
+			parts = append(parts, selectorPart{id: idValue, isID: true})
 		} else if val.TokenType == css.IdentToken {
-			isClassSelector := i > 0 && values[i-1].TokenType == css.DelimToken && string(values[i-1].Data) == "."
-
-			// Skip pseudo-selectors
-			if i > 0 && values[i-1].TokenType == css.ColonToken {
-				continue
+			// Check if this is preceded by a dot (class) - if so, we already handled it
+			if i > 0 && values[i-1].TokenType == css.DelimToken && string(values[i-1].Data) == "." {
+				continue // Already handled in chained class logic above
 			}
+			// Tag selector
+			parts = append(parts, selectorPart{tag: string(val.Data), isTag: true})
+		} else if val.TokenType == css.LeftBracketToken {
+			// Attribute selector - treat as universal (always keep)
+			parts = append(parts, selectorPart{isAttribute: true})
+			inAttributeSelector = true
+		}
+	}
 
-			valStr := string(val.Data)
+	return parts
+}
 
-			if isClassSelector {
-				// Only match if this is a ROOT class:
-				// - Not preceded by whitespace (descendant)
-				// - Not preceded by combinator or another class
-				// - Not followed by another dot (chained)
-				isRootClass := true
+type selectorPart struct {
+	tag         string
+	id          string
+	classes     []string
+	isTag       bool
+	isID        bool
+	isClass     bool
+	isUniversal bool
+	isAttribute bool
+}
 
-				if i >= 2 {
-					prevPrevToken := values[i-2]
-					if prevPrevToken.TokenType == css.WhitespaceToken {
-						isRootClass = false
-					} else if prevPrevToken.TokenType == css.DelimToken {
-						d := string(prevPrevToken.Data)
-						if d == ">" || d == "+" || d == "~" || d == "." {
-							isRootClass = false
+// checkSingleSelectorUsed checks if a single selector (one set of tokens) has all its parts used
+// For descendant selectors, ALL parts must exist in the component
+// For chained classes, an element must have ALL classes
+func checkSingleSelectorUsed(values []css.Token, scopedElements []scopedElement) bool {
+	parts := parseSelectorParts(values)
+
+	// If no parts, don't keep
+	if len(parts) == 0 {
+		return false
+	}
+
+	// Check each part
+	for _, part := range parts {
+		if part.isUniversal || part.isAttribute {
+			// Universal and attribute selectors always match
+			continue
+		}
+
+		if part.isID {
+			if !isSelectorUsed("id", part.id, scopedElements) {
+				return false
+			}
+			continue
+		}
+
+		if part.isTag {
+			if !isSelectorUsed("tag", part.tag, scopedElements) {
+				return false
+			}
+			continue
+		}
+
+		if part.isClass {
+			// For chained classes, ALL classes must exist on the same element
+			found := false
+			for _, elem := range scopedElements {
+				allMatch := true
+				for _, className := range part.classes {
+					hasClass := false
+					for _, elemClass := range elem.classes {
+						if elemClass == className {
+							hasClass = true
+							break
 						}
-					} else if prevPrevToken.TokenType == css.IdentToken {
-						isRootClass = false
+					}
+					if !hasClass {
+						allMatch = false
+						break
 					}
 				}
-
-				// Check if followed by another dot (chained class like .container.fake)
-				if isRootClass && i < len(values)-1 {
-					nextToken := values[i+1]
-					if nextToken.TokenType == css.DelimToken && string(nextToken.Data) == "." {
-						isRootClass = false
-					}
+				if allMatch {
+					found = true
+					break
 				}
-
-				// Check if followed by whitespace (this class has a descendant - it's a parent, not a leaf)
-				// e.g. ".container .fake" - .container is a parent, .fake is the leaf
-				// We only keep if the LEAF selector is used, not just the parent
-				if isRootClass && i < len(values)-1 {
-					nextToken := values[i+1]
-					if nextToken.TokenType == css.WhitespaceToken {
-						// This class has a descendant - it's a parent selector
-						// Don't count it as a match; the descendant must be checked
-						isRootClass = false
-					}
-				}
-
-				if isRootClass && isSelectorUsed("class", valStr, scopedElements) {
-					return true
-				}
-			} else {
-				// Tag selector
-				// Check if followed by whitespace (parent selector)
-				isParent := false
-				if i < len(values)-1 {
-					nextToken := values[i+1]
-					if nextToken.TokenType == css.WhitespaceToken {
-						isParent = true
-					}
-				}
-				if !isParent && isSelectorUsed("tag", valStr, scopedElements) {
-					return true
-				}
+			}
+			if !found {
+				return false
 			}
 		}
 	}
-	return false
+
+	return true
 }
 
 // Helper function to check if a ruleset should be kept (has used selectors or global selectors)
