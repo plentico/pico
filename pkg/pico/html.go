@@ -212,14 +212,94 @@ func traverse(node *html.Node, scopedElements []scopedElement, fence string, use
 							// Evaluate for SSR
 							parsed := ParseExpression(innerExpr[1 : len(innerExpr)-1])
 							evaluated := fmt.Sprintf("%v", evalJS(parsed.Base, fence))
+							isHTML := false
+							var allowedTags []string
 							for _, mod := range parsed.Modifiers {
+								// Check if using html modifier and get allowed tags
+								if mod.Name == "html" {
+									isHTML = true
+									allowedTags = mod.Args
+									break
+								}
+								// Apply trim if specified
 								if mod.Name == "trim" && len(mod.Args) > 0 {
-									if maxLen, err := strconv.Atoi(mod.Args[0]); err == nil && len(evaluated) > maxLen {
-										evaluated = evaluated[:maxLen] + "..."
+									if maxLen, err := strconv.Atoi(mod.Args[0]); err == nil {
+										evaluated = trimHTML(evaluated, maxLen)
 									}
 								}
 							}
-							node.Data = expr[:startIdx] + evaluated + expr[endIdx+1:]
+							// Sanitize HTML to only allow specified tags
+							if isHTML && len(allowedTags) > 0 {
+								evaluated = sanitizeHTML(evaluated, allowedTags)
+							}
+							if isHTML {
+								// Parse evaluated HTML and insert as nodes
+								htmlNodes, err := parseNoFix(evaluated)
+								if err == nil && len(htmlNodes) > 0 {
+									// Get text before and after the expression
+									beforeText := expr[:startIdx]
+									afterText := expr[endIdx+1:]
+									// Clear current node data
+									node.Data = ""
+									// Insert before text if any
+									if beforeText != "" {
+										node.Data = beforeText
+									}
+									// Insert parsed HTML nodes
+									for i, n := range htmlNodes {
+										if i == 0 {
+											// First node replaces current or is inserted after
+											if beforeText == "" {
+												// Replace current node's data with first text node content if it's text
+												if n.Type == html.TextNode {
+													node.Data = n.Data
+												} else {
+													// Insert element node as sibling
+													if node.Parent != nil {
+														node.Parent.InsertBefore(n, node.NextSibling)
+													}
+												}
+											} else {
+												// Add to existing text
+												if n.Type == html.TextNode {
+													node.Data += n.Data
+												}
+											}
+										} else {
+											// Insert subsequent nodes after current
+											if node.Parent != nil {
+												node.Parent.InsertBefore(n, node.NextSibling)
+											}
+										}
+									}
+									// Add after text to last inserted node or current
+									if afterText != "" {
+										// Find the last node we inserted
+										lastNode := node
+										for sibling := node.NextSibling; sibling != nil; sibling = sibling.NextSibling {
+											lastNode = sibling
+										}
+										if lastNode.Type == html.TextNode {
+											lastNode.Data += afterText
+										} else {
+											// Insert text node after
+											textNode := &html.Node{
+												Type: html.TextNode,
+												Data: afterText,
+											}
+											if lastNode.Parent != nil {
+												lastNode.Parent.InsertBefore(textNode, lastNode.NextSibling)
+											}
+										}
+									}
+								} else {
+									// Fallback: treat as text
+									node.Data = expr[:startIdx] + evaluated + expr[endIdx+1:]
+								}
+							} else {
+								// Plain text - just set the data
+								node.Data = expr[:startIdx] + evaluated + expr[endIdx+1:]
+							}
 						} else {
 							// Original behavior for simple expressions
 							attr := html.Attribute{
@@ -450,6 +530,219 @@ func processLoopTemplate(markup string, loopFence string, usePattr bool) string 
 		}
 	}
 	return buf.String()
+}
+
+// stripHTMLTags removes HTML tags from a string and returns plain text
+func stripHTMLTags(html string) string {
+	var result strings.Builder
+	inTag := false
+	for _, ch := range html {
+		if ch == '<' {
+			inTag = true
+			continue
+		}
+		if ch == '>' {
+			inTag = false
+			continue
+		}
+		if !inTag {
+			result.WriteRune(ch)
+		}
+	}
+	return result.String()
+}
+
+// trimHTML trims HTML content to maxLen visible characters while preserving HTML structure
+func trimHTML(html string, maxLen int) string {
+	if maxLen <= 0 {
+		return html
+	}
+
+	type token struct {
+		isTag bool
+		data  string
+	}
+
+	// Parse into tokens
+	var tokens []token
+	var current strings.Builder
+	inTag := false
+
+	for _, ch := range html {
+		if ch == '<' {
+			if current.Len() > 0 {
+				tokens = append(tokens, token{isTag: inTag, data: current.String()})
+				current.Reset()
+			}
+			inTag = true
+			current.WriteRune(ch)
+		} else if ch == '>' {
+			current.WriteRune(ch)
+			tokens = append(tokens, token{isTag: true, data: current.String()})
+			current.Reset()
+			inTag = false
+		} else {
+			current.WriteRune(ch)
+		}
+	}
+	if current.Len() > 0 {
+		tokens = append(tokens, token{isTag: inTag, data: current.String()})
+	}
+
+	// Build output with trim
+	var result strings.Builder
+	visibleCount := 0
+	trimmed := false
+	openTags := []string{}
+
+	for i, tok := range tokens {
+		if tok.isTag {
+			// Check if it's an opening or closing tag
+			data := strings.TrimSpace(tok.data)
+			if strings.HasPrefix(data, "</") {
+				// Closing tag
+				if !trimmed {
+					result.WriteString(tok.data)
+					// Pop from open tags
+					if len(openTags) > 0 {
+						openTags = openTags[:len(openTags)-1]
+					}
+				}
+			} else if strings.HasSuffix(data, "/>") || strings.HasSuffix(data, "/ >") {
+				// Self-closing tag
+				if !trimmed {
+					result.WriteString(tok.data)
+				}
+			} else {
+				// Opening tag
+				if !trimmed {
+					result.WriteString(tok.data)
+					// Extract tag name
+					tagName := extractTagName(data)
+					if tagName != "" {
+						openTags = append(openTags, tagName)
+					}
+				}
+			}
+		} else {
+			// Text content
+			if trimmed {
+				continue
+			}
+
+			remaining := maxLen - visibleCount
+			if remaining <= 0 {
+				trimmed = true
+				result.WriteString("...")
+				break
+			}
+
+			textRunes := []rune(tok.data)
+			if len(textRunes) <= remaining {
+				result.WriteString(tok.data)
+				visibleCount += len(textRunes)
+			} else {
+				result.WriteString(string(textRunes[:remaining]))
+				result.WriteString("...")
+				visibleCount = maxLen
+				trimmed = true
+				break
+			}
+		}
+
+		// Check if we need to close remaining tags
+		if trimmed && i == len(tokens)-1 {
+			break
+		}
+	}
+
+	// Close any open tags in reverse order
+	for i := len(openTags) - 1; i >= 0; i-- {
+		result.WriteString("</" + openTags[i] + ">")
+	}
+
+	return result.String()
+}
+
+// sanitizeHTML removes all HTML tags except those in the allowed list
+func sanitizeHTML(input string, allowedTags []string) string {
+	if len(allowedTags) == 0 {
+		return stripHTMLTags(input)
+	}
+
+	// Create a map for faster lookup
+	allowed := make(map[string]bool)
+	for _, tag := range allowedTags {
+		allowed[strings.ToLower(tag)] = true
+	}
+
+	var result strings.Builder
+	var currentTag strings.Builder
+	inTag := false
+
+	for _, ch := range input {
+		if ch == '<' {
+			if inTag {
+				// Malformed HTML - treat as text
+				result.WriteRune('<')
+				result.WriteString(currentTag.String())
+				currentTag.Reset()
+			}
+			inTag = true
+			currentTag.WriteRune(ch)
+		} else if ch == '>' {
+			currentTag.WriteRune(ch)
+			if inTag {
+				tagContent := currentTag.String()
+				// Check if this tag is allowed
+				tagName := extractTagName(tagContent)
+
+				// Allow the tag if it's in the allowed list
+				if tagName != "" && allowed[strings.ToLower(tagName)] {
+					result.WriteString(tagContent)
+				}
+				// Otherwise, skip the tag entirely
+
+				currentTag.Reset()
+				inTag = false
+			}
+		} else {
+			if inTag {
+				currentTag.WriteRune(ch)
+			} else {
+				result.WriteRune(ch)
+			}
+		}
+	}
+
+	// Handle any unclosed tag at the end
+	if inTag && currentTag.Len() > 0 {
+		result.WriteString(currentTag.String())
+	}
+
+	return result.String()
+}
+
+// extractTagName extracts the tag name from an HTML tag
+func extractTagName(tag string) string {
+	// Remove < and >
+	tag = strings.TrimPrefix(tag, "<")
+	tag = strings.TrimSuffix(tag, ">")
+	tag = strings.TrimSpace(tag)
+
+	// Get first word (tag name)
+	parts := strings.Fields(tag)
+	if len(parts) == 0 {
+		return ""
+	}
+
+	name := parts[0]
+	// Remove any attributes
+	if idx := strings.IndexAny(name, " \t\n\r"); idx != -1 {
+		name = name[:idx]
+	}
+
+	return name
 }
 
 func getScopedClass(target string, targetType string, scopedElements []scopedElement) string {
