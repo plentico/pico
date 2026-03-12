@@ -2,6 +2,7 @@ package pico
 
 import (
 	"encoding/json"
+	"fmt"
 	"io"
 	"log"
 	"strconv"
@@ -192,11 +193,49 @@ func traverse(node *html.Node, scopedElements []scopedElement, fence string, use
 					}
 				}
 				if usePattr {
-					attr := html.Attribute{
-						Key: "p-text",
-						Val: "`" + strings.ReplaceAll(strings.ReplaceAll(node.Data, "{", "${"), "\"", "'") + "`",
+					// Check if this is a simple expression or one with modifiers
+					expr := node.Data
+					// Extract the expression between braces
+					startIdx := strings.Index(expr, "{")
+					endIdx := strings.LastIndex(expr, "}")
+					if startIdx != -1 && endIdx != -1 && endIdx > startIdx {
+						innerExpr := expr[startIdx : endIdx+1]
+						// Check if expression contains pipe (modifier syntax)
+						if strings.Contains(innerExpr, "|") {
+							// Process with modifiers
+							attrKey, attrValue := ProcessExpression(innerExpr)
+							attr := html.Attribute{
+								Key: attrKey,
+								Val: attrValue,
+							}
+							node.Parent.Attr = append(node.Parent.Attr, attr)
+							// Evaluate for SSR
+							parsed := ParseExpression(innerExpr[1 : len(innerExpr)-1])
+							evaluated := fmt.Sprintf("%v", evalJS(parsed.Base, fence))
+							for _, mod := range parsed.Modifiers {
+								if mod.Name == "trim" && len(mod.Args) > 0 {
+									if maxLen, err := strconv.Atoi(mod.Args[0]); err == nil && len(evaluated) > maxLen {
+										evaluated = evaluated[:maxLen] + "..."
+									}
+								}
+							}
+							node.Data = expr[:startIdx] + evaluated + expr[endIdx+1:]
+						} else {
+							// Original behavior for simple expressions
+							attr := html.Attribute{
+								Key: "p-text",
+								Val: "`" + strings.ReplaceAll(strings.ReplaceAll(node.Data, "{", "${"), "\"", "'") + "`",
+							}
+							node.Parent.Attr = append(node.Parent.Attr, attr)
+						}
+					} else {
+						// Original behavior
+						attr := html.Attribute{
+							Key: "p-text",
+							Val: "`" + strings.ReplaceAll(strings.ReplaceAll(node.Data, "{", "${"), "\"", "'") + "`",
+						}
+						node.Parent.Attr = append(node.Parent.Attr, attr)
 					}
-					node.Parent.Attr = append(node.Parent.Attr, attr)
 				}
 			}
 			node.Data = evalAllBrackets(node.Data, fence)
