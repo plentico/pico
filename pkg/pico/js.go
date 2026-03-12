@@ -41,7 +41,7 @@ func (v *jsVisitor) Enter(node js.INode) js.IVisitor {
 							}
 							scopedClass := getScopedClass(argStr, targetType, v.scopedElements)
 							newData := []byte(`"` + argStrOrig + `"`)
-							if !strings.Contains(argStrOrig, "plenti-") {
+							if !strings.Contains(argStrOrig, "p-") {
 								newData = []byte(`"` + argStrOrig + "." + scopedClass + `"`)
 							}
 							callExpr.Args.List[i] = js.Arg{Value: &js.LiteralExpr{

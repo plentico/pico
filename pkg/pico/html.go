@@ -212,7 +212,7 @@ func traverse(node *html.Node, scopedElements []scopedElement, fence string, use
 				if err != nil {
 					log.Fatal(err)
 				}
-				scopedClass = "plenti-" + randomStr
+				scopedClass = "p-" + randomStr
 			}
 
 			// Track attributes to remove
@@ -226,7 +226,7 @@ func traverse(node *html.Node, scopedElements []scopedElement, fence string, use
 					classes = strings.Split(attr.Val, " ")
 					alreadyScoped := false
 					for _, class := range classes {
-						if strings.HasPrefix(class, "plenti-") {
+						if strings.HasPrefix(class, "p-") {
 							alreadyScoped = true
 							scopedClass = class
 						}
