@@ -11,11 +11,13 @@ import (
 
 // control represents a node in the template control tree (if/for/component/text)
 type control struct {
-	isIfStmt    bool
-	ifCondition string
+	isIfStmt          bool
+	ifCondition       string
+	parsedIfCondition *ParsedIfCondition
 
-	isElseIfStmt    bool
-	elseIfCondition string
+	isElseIfStmt          bool
+	elseIfCondition       string
+	parsedElseIfCondition *ParsedIfCondition
 
 	isElseStmt bool
 
@@ -52,10 +54,12 @@ func buildControlTree(markup string) ([]control, error) {
 			endOpenIfIndex := startOpenIfIndex + relativeEndOpenIfIndex
 
 			ifCondition := markup[startOpenIfIndex+len("{if ") : endOpenIfIndex]
+			parsedIfCondition := ParseIfCondition(ifCondition)
 
 			newControl := control{
-				isIfStmt:    true,
-				ifCondition: ifCondition,
+				isIfStmt:          true,
+				ifCondition:       parsedIfCondition.BaseCondition,
+				parsedIfCondition: &parsedIfCondition,
 			}
 
 			if openControl != nil {
@@ -294,9 +298,17 @@ func evalControlTree(controlTree []control, scopeStack []scopeStackItem, props m
 
 				ifFullCondition := buildFullCondition(ctrl.ifCondition)
 				ifMarkup, newScopeStack := evalControlTree(ctrl.children, scopeStack, props, pScopeExp, fence, components, pattrEnabled, templateDir, ifFullCondition)
-				ifMarkupWithPShow, err := addPShowAttribute(ifMarkup, ifFullCondition, fence, usePreScope, pattrEnabled)
+
+				// Use addConditionalAttributes if modifiers are present, otherwise use addPShowAttribute
+				var ifMarkupWithAttrs string
+				var err error
+				if ctrl.parsedIfCondition != nil && ctrl.parsedIfCondition.HasModifiers() {
+					ifMarkupWithAttrs, err = addConditionalAttributes(ifMarkup, ifFullCondition, ctrl.parsedIfCondition, fence, usePreScope, pattrEnabled)
+				} else {
+					ifMarkupWithAttrs, err = addPShowAttribute(ifMarkup, ifFullCondition, fence, usePreScope, pattrEnabled)
+				}
 				if err == nil {
-					markupBuilder.WriteString(ifMarkupWithPShow)
+					markupBuilder.WriteString(ifMarkupWithAttrs)
 					scopeStack = newScopeStack
 				}
 				collectIfConditions = append(collectIfConditions, ctrl.ifCondition)

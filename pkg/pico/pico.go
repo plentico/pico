@@ -191,3 +191,146 @@ func addPShowAttribute(htmlStr string, showCondition string, fence string, usePr
 
 	return buf.String(), nil
 }
+
+// addConditionalAttributes adds conditional attributes (style, class, attr) based on if-statement modifiers
+// This allows for accordion expands and other conditional styling beyond just p-show
+func addConditionalAttributes(htmlStr string, condition string, parsedIfCondition *ParsedIfCondition, fence string, usePreScope bool, usePattr bool) (string, error) {
+	// Evaluate the condition during SSR
+	conditionResult := evalJS(condition, fence)
+	shouldShow := isBoolAndTrue(conditionResult)
+
+	// Parse the HTML string
+	nodes, err := parseNoFix(htmlStr)
+	if err != nil {
+		return "", err
+	}
+
+	// Get modifiers
+	styleMod := parsedIfCondition.GetStyleModifier()
+	classMod := parsedIfCondition.GetClassModifier()
+	attrMod := parsedIfCondition.GetAttrModifier()
+
+	var buf strings.Builder
+	for _, node := range nodes {
+		if node.Type == html.ElementNode {
+			if usePattr {
+				// Add p-style if style modifier is present (using ternary syntax)
+				if styleMod != nil && len(styleMod.Args) >= 2 {
+					trueStyle := styleMod.Args[0]
+					falseStyle := styleMod.Args[1]
+					// Use ternary syntax: condition ? 'true-value' : 'false-value'
+					pStyleVal := condition + " ? '" + trueStyle + "' : '" + falseStyle + "'"
+					node.Attr = append(node.Attr, html.Attribute{Key: "p-style", Val: pStyleVal})
+				}
+
+				// Add p-class if class modifier is present (using ternary syntax)
+				if classMod != nil && len(classMod.Args) >= 2 {
+					trueClass := classMod.Args[0]
+					falseClass := classMod.Args[1]
+					// Use ternary syntax: condition ? 'true-value' : 'false-value'
+					pClassVal := condition + " ? '" + trueClass + "' : '" + falseClass + "'"
+					node.Attr = append(node.Attr, html.Attribute{Key: "p-class", Val: pClassVal})
+				}
+
+				// Add p-attr if attr modifier is present (using ternary syntax)
+				if attrMod != nil && len(attrMod.Args) >= 3 {
+					attrName := attrMod.Args[0]
+					trueVal := attrMod.Args[1]
+					falseVal := attrMod.Args[2]
+					// Use ternary syntax for p-attr: condition ? 'attrName:trueVal' : 'attrName:falseVal'
+					pAttrVal := condition + " ? '" + attrName + ":" + trueVal + "' : '" + attrName + ":" + falseVal + "'"
+					node.Attr = append(node.Attr, html.Attribute{Key: "p-attr", Val: pAttrVal})
+				}
+			}
+
+			// Apply SSR styles if condition is false
+			if !shouldShow {
+				// Check for style modifier first
+				if styleMod != nil && len(styleMod.Args) >= 2 {
+					falseStyle := styleMod.Args[1]
+					applyStyleToNode(node, falseStyle)
+				}
+			} else {
+				// Apply true styles if condition is true
+				if styleMod != nil && len(styleMod.Args) >= 1 {
+					trueStyle := styleMod.Args[0]
+					applyStyleToNode(node, trueStyle)
+				}
+			}
+
+			// Apply class modifier for SSR
+			if classMod != nil && len(classMod.Args) >= 2 {
+				if shouldShow {
+					applyClassToNode(node, classMod.Args[0])
+				} else {
+					applyClassToNode(node, classMod.Args[1])
+				}
+			}
+
+			// Apply attr modifier for SSR
+			if attrMod != nil && len(attrMod.Args) >= 3 {
+				attrName := attrMod.Args[0]
+				if shouldShow {
+					applyAttrToNode(node, attrName, attrMod.Args[1])
+				} else {
+					applyAttrToNode(node, attrName, attrMod.Args[2])
+				}
+			}
+		}
+		if err := html.Render(&buf, node); err != nil {
+			return "", err
+		}
+	}
+
+	return buf.String(), nil
+}
+
+// applyStyleToNode applies a style string to a node, merging with existing styles
+func applyStyleToNode(node *html.Node, style string) {
+	hasStyle := false
+	for i, attr := range node.Attr {
+		if attr.Key == "style" {
+			hasStyle = true
+			// Append to existing styles
+			if !strings.HasSuffix(attr.Val, ";") && attr.Val != "" {
+				node.Attr[i].Val = attr.Val + "; " + style + ";"
+			} else {
+				node.Attr[i].Val = attr.Val + style + ";"
+			}
+			break
+		}
+	}
+	if !hasStyle {
+		node.Attr = append(node.Attr, html.Attribute{Key: "style", Val: style + ";"})
+	}
+}
+
+// applyClassToNode applies a class to a node, appending to existing classes
+func applyClassToNode(node *html.Node, class string) {
+	hasClass := false
+	for i, attr := range node.Attr {
+		if attr.Key == "class" {
+			hasClass = true
+			node.Attr[i].Val = attr.Val + " " + class
+			break
+		}
+	}
+	if !hasClass {
+		node.Attr = append(node.Attr, html.Attribute{Key: "class", Val: class})
+	}
+}
+
+// applyAttrToNode applies an attribute to a node, or updates existing
+func applyAttrToNode(node *html.Node, key, val string) {
+	hasAttr := false
+	for i, attr := range node.Attr {
+		if attr.Key == key {
+			hasAttr = true
+			node.Attr[i].Val = val
+			break
+		}
+	}
+	if !hasAttr {
+		node.Attr = append(node.Attr, html.Attribute{Key: key, Val: val})
+	}
+}
