@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"io"
 	"log"
+	"regexp"
 	"strconv"
 	"strings"
 
@@ -123,6 +124,26 @@ func isVoidElement(a atom.Atom) bool {
 	default:
 		return false
 	}
+}
+
+// extractPClassNames parses a p-class ternary expression and extracts class names
+// Format: condition ? 'trueClass' : 'falseClass'
+func extractPClassNames(pClassVal string) []string {
+	var classes []string
+	// Regex to match quoted strings in the ternary
+	re := regexp.MustCompile(`'([^']*)'`)
+	matches := re.FindAllStringSubmatch(pClassVal, -1)
+	for _, match := range matches {
+		if len(match) > 1 && match[1] != "" {
+			// Split by space in case multiple classes are in one string
+			for _, class := range strings.Fields(match[1]) {
+				if class != "" {
+					classes = append(classes, class)
+				}
+			}
+		}
+	}
+	return classes
 }
 
 func scopeHTML(markup string, props map[string]any, pScopeExp string, fence string, usePattr bool) (string, []scopedElement) {
@@ -353,6 +374,11 @@ func traverse(node *html.Node, scopedElements []scopedElement, fence string, use
 					if !alreadyScoped {
 						node.Attr[i].Val += " " + scopedClass
 					}
+				}
+				// Extract classes from p-class attribute for CSS treeshaking
+				if attr.Key == "p-class" {
+					pClassNames := extractPClassNames(attr.Val)
+					classes = append(classes, pClassNames...)
 				}
 				if strings.Contains(attr.Val, "{") && strings.Contains(attr.Val, "}") {
 					if attr.Key != "p-text" && attr.Key != "p-scope" && !strings.HasPrefix(attr.Key, "p-attr") && !strings.HasPrefix(attr.Key, "p-on") && attr.Key != "p-model" {
