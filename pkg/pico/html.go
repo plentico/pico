@@ -128,11 +128,22 @@ func isVoidElement(a atom.Atom) bool {
 
 // extractPClassNames parses a p-class ternary expression and extracts class names
 // Format: condition ? 'trueClass' : 'falseClass'
+// Only extracts classes from the true/false branches (after the ?)
 func extractPClassNames(pClassVal string) []string {
 	var classes []string
-	// Regex to match quoted strings in the ternary
+
+	// Find the position of ? to skip the condition part
+	qIdx := strings.Index(pClassVal, "?")
+	if qIdx == -1 {
+		return classes
+	}
+
+	// Only look at the part after ?
+	tBranchPart := pClassVal[qIdx+1:]
+
+	// Regex to match quoted strings in the true/false branches
 	re := regexp.MustCompile(`'([^']*)'`)
-	matches := re.FindAllStringSubmatch(pClassVal, -1)
+	matches := re.FindAllStringSubmatch(tBranchPart, -1)
 	for _, match := range matches {
 		if len(match) > 1 && match[1] != "" {
 			// Split by space in case multiple classes are in one string

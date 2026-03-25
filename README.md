@@ -212,6 +212,8 @@ Use curly braces `{}` for JavaScript expressions:
 <p>Upper: {name.toUpperCase()}</p>
 ```
 
+Modifiers are allowed in expressions, see details here: [Modifiers](/docs/MODIFIERS.md)
+
 ### Conditionals
 
 ```html
@@ -223,6 +225,8 @@ Use curly braces `{}` for JavaScript expressions:
   <LoginPrompt />
 {/if}
 ```
+
+Modifiers are allowed in If-Statements, see details here: [Modifiers](/docs/MODIFIERS.md)
 
 ### Loops
 
