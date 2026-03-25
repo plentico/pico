@@ -296,13 +296,16 @@ func evalControlTree(controlTree []control, scopeStack []scopeStackItem, props m
 					return currentCondition
 				}
 
+				// Check if parent if statement has modifiers
+				parentHasModifiers := ctrl.parsedIfCondition != nil && ctrl.parsedIfCondition.HasModifiers()
+
 				ifFullCondition := buildFullCondition(ctrl.ifCondition)
 				ifMarkup, newScopeStack := evalControlTree(ctrl.children, scopeStack, props, pScopeExp, fence, components, pattrEnabled, templateDir, ifFullCondition)
 
 				// Use addConditionalAttributes if modifiers are present, otherwise use addPShowAttribute
 				var ifMarkupWithAttrs string
 				var err error
-				if ctrl.parsedIfCondition != nil && ctrl.parsedIfCondition.HasModifiers() {
+				if parentHasModifiers {
 					ifMarkupWithAttrs, err = addConditionalAttributes(ifMarkup, ifFullCondition, ctrl.parsedIfCondition, fence, usePreScope, pattrEnabled)
 				} else {
 					ifMarkupWithAttrs, err = addPShowAttribute(ifMarkup, ifFullCondition, fence, usePreScope, pattrEnabled)
@@ -323,9 +326,16 @@ func evalControlTree(controlTree []control, scopeStack []scopeStackItem, props m
 						fullCondition := buildFullCondition(currentCondition)
 
 						elseIfMarkup, newScopeStack := evalControlTree(child.children, scopeStack, props, pScopeExp, fence, components, pattrEnabled, templateDir, fullCondition)
-						elseIfMarkupWithPShow, err := addPShowAttribute(elseIfMarkup, fullCondition, fence, usePreScope, pattrEnabled)
+						// Use same modifier handling as parent if
+						var elseIfMarkupWithAttrs string
+						var err error
+						if parentHasModifiers {
+							elseIfMarkupWithAttrs, err = addConditionalAttributes(elseIfMarkup, fullCondition, ctrl.parsedIfCondition, fence, usePreScope, pattrEnabled)
+						} else {
+							elseIfMarkupWithAttrs, err = addPShowAttribute(elseIfMarkup, fullCondition, fence, usePreScope, pattrEnabled)
+						}
 						if err == nil {
-							markupBuilder.WriteString(elseIfMarkupWithPShow)
+							markupBuilder.WriteString(elseIfMarkupWithAttrs)
 							scopeStack = newScopeStack
 						}
 						collectIfConditions = append(collectIfConditions, child.elseIfCondition)
@@ -342,9 +352,16 @@ func evalControlTree(controlTree []control, scopeStack []scopeStackItem, props m
 						fullCondition := buildFullCondition(currentCondition)
 
 						elseMarkup, newScopeStack := evalControlTree(child.children, scopeStack, props, pScopeExp, fence, components, pattrEnabled, templateDir, fullCondition)
-						elseMarkupWithPShow, err := addPShowAttribute(elseMarkup, fullCondition, fence, usePreScope, pattrEnabled)
+						// Use same modifier handling as parent if
+						var elseMarkupWithAttrs string
+						var err error
+						if parentHasModifiers {
+							elseMarkupWithAttrs, err = addConditionalAttributes(elseMarkup, fullCondition, ctrl.parsedIfCondition, fence, usePreScope, pattrEnabled)
+						} else {
+							elseMarkupWithAttrs, err = addPShowAttribute(elseMarkup, fullCondition, fence, usePreScope, pattrEnabled)
+						}
 						if err == nil {
-							markupBuilder.WriteString(elseMarkupWithPShow)
+							markupBuilder.WriteString(elseMarkupWithAttrs)
 							scopeStack = newScopeStack
 						}
 					}
