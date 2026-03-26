@@ -21,9 +21,12 @@ type control struct {
 
 	isElseStmt bool
 
-	isForLoop     bool
-	forVar        string
-	forCollection string
+	isForLoop          bool
+	forVar             string
+	forCollection      string
+	forKeyword         string // "of" or "in"
+	forIsDestructuring bool
+	forDestructureVars []string // variables from destructuring pattern
 
 	isTextNode  bool
 	textContent string
@@ -74,22 +77,74 @@ func buildControlTree(markup string) ([]control, error) {
 			i = endOpenIfIndex + 1
 		} else if strings.HasPrefix(markup[i:], "{for ") {
 			startOpenForIndex := i
-			relativeEndOpenForIndex := strings.Index(markup[startOpenForIndex:], "}")
-			if relativeEndOpenForIndex == -1 {
+
+			// Find the closing } for the {for ...} statement
+			// Need to count nested {} to find the right one
+			braceCount := 0
+			endOpenForIndex := -1
+			for j := startOpenForIndex; j < len(markup); j++ {
+				if markup[j] == '{' {
+					braceCount++
+				} else if markup[j] == '}' {
+					braceCount--
+					if braceCount == 0 {
+						endOpenForIndex = j
+						break
+					}
+				}
+			}
+
+			if endOpenForIndex == -1 {
 				return nil, fmt.Errorf("{for } loop missing closing \"}\" at index %d", startOpenForIndex)
 			}
-			endOpenForIndex := startOpenForIndex + relativeEndOpenForIndex
 
-			re := regexp.MustCompile(`for (?:let|var|const) (\w+) (?:of|in) (.*)`)
-			matches := re.FindStringSubmatch(markup[startOpenForIndex:endOpenForIndex])
-			if len(matches) < 2 {
-				return nil, fmt.Errorf("{for } loop missing iterator / collection \"}\" at index %d", startOpenForIndex)
-			}
+			forContent := markup[startOpenForIndex+len("{for ") : endOpenForIndex]
 
-			newControl := control{
-				isForLoop:     true,
-				forVar:        matches[1],
-				forCollection: matches[2],
+			// Try to match destructuring patterns first: [a, b] or {a, b}
+			reDestructure := regexp.MustCompile(`(?:let|var|const)\s+(\[[^\]]+\]|\{[^}]+\})\s+(of|in)\s+(.*)`)
+			matchesDestructure := reDestructure.FindStringSubmatch(forContent)
+
+			var newControl control
+
+			if len(matchesDestructure) >= 4 {
+				// Handle destructuring
+				pattern := matchesDestructure[1]
+				keyword := matchesDestructure[2]
+				collection := matchesDestructure[3]
+
+				// Extract variable names from pattern
+				var vars []string
+				cleanPattern := strings.Trim(pattern, "[]{}")
+				parts := strings.Split(cleanPattern, ",")
+				for _, part := range parts {
+					varName := strings.TrimSpace(part)
+					if varName != "" {
+						vars = append(vars, varName)
+					}
+				}
+
+				newControl = control{
+					isForLoop:          true,
+					forVar:             pattern, // Store the full pattern
+					forKeyword:         keyword,
+					forCollection:      collection,
+					forIsDestructuring: true,
+					forDestructureVars: vars,
+				}
+			} else {
+				// Try simple variable pattern
+				re := regexp.MustCompile(`(?:let|var|const)\s+(\w+)\s+(of|in)\s+(.*)`)
+				matches := re.FindStringSubmatch(forContent)
+				if len(matches) < 4 {
+					return nil, fmt.Errorf("{for } loop missing iterator / collection at index %d", startOpenForIndex)
+				}
+
+				newControl = control{
+					isForLoop:     true,
+					forVar:        matches[1],
+					forKeyword:    matches[2],
+					forCollection: matches[3],
+				}
 			}
 			if openControl != nil {
 				openControl.children = append(openControl.children, newControl)
@@ -396,16 +451,31 @@ func evalControlTree(controlTree []control, scopeStack []scopeStackItem, props m
 			}
 		} else if ctrl.isForLoop {
 			iterableVal := evalJS(ctrl.forCollection, fence)
-			items, ok := iterableVal.([]any)
-			if ok {
+
+			// Check if it's an array (for "of") or object (for "in")
+			items, isArray := iterableVal.([]any)
+			objMap, isObject := iterableVal.(map[string]any)
+
+			// Convert object keys to array if using "in"
+			var iterationItems []any
+			if ctrl.forKeyword == "in" && isObject {
+				// Get object keys
+				for key := range objMap {
+					iterationItems = append(iterationItems, key)
+				}
+			} else if isArray {
+				iterationItems = items
+			}
+
+			if isArray || isObject {
 				currentScopeId := loopScopeCounter
 				loopScopeCounter++
 
 				if pattrEnabled {
-					pForExpr := ctrl.forVar + " of " + ctrl.forCollection
+					pForExpr := ctrl.forVar + " " + ctrl.forKeyword + " " + ctrl.forCollection
 					var templateLoopFence string
-					if len(items) > 0 {
-						templateLoopFence = fence + "\nlet " + ctrl.forVar + " = " + anyToString(items[0]) + ";"
+					if len(iterationItems) > 0 {
+						templateLoopFence = fence + "\nlet " + ctrl.forVar + " = " + anyToString(iterationItems[0]) + ";"
 					} else {
 						templateLoopFence = fence + "\nlet " + ctrl.forVar + " = null;"
 					}
@@ -413,8 +483,8 @@ func evalControlTree(controlTree []control, scopeStack []scopeStackItem, props m
 					for k, v := range props {
 						templateNewProps[k] = v
 					}
-					if len(items) > 0 {
-						templateNewProps[ctrl.forVar] = items[0]
+					if len(iterationItems) > 0 {
+						templateNewProps[ctrl.forVar] = iterationItems[0]
 					}
 					templateMarkup, _ := evalControlTree(ctrl.children, scopeStack, templateNewProps, pScopeExp, templateLoopFence, components, pattrEnabled, templateDir)
 					templateMarkup = processLoopTemplate(templateMarkup, templateLoopFence, pattrEnabled)
@@ -423,13 +493,47 @@ func evalControlTree(controlTree []control, scopeStack []scopeStackItem, props m
 					markupBuilder.WriteString("</template>")
 				}
 
-				for idx, item := range items {
+				for idx, item := range iterationItems {
 					newProps := make(map[string]any)
 					for k, v := range props {
 						newProps[k] = v
 					}
-					newProps[ctrl.forVar] = item
-					loopFence := fence + "\nlet " + ctrl.forVar + " = " + anyToString(item) + ";"
+
+					var loopFence string
+
+					if ctrl.forIsDestructuring {
+						// Handle destructuring
+						if strings.HasPrefix(ctrl.forVar, "[") {
+							// Array destructuring: [a, b]
+							itemArray, ok := item.([]any)
+							if ok {
+								for i, varName := range ctrl.forDestructureVars {
+									if i < len(itemArray) {
+										newProps[varName] = itemArray[i]
+									}
+								}
+							}
+							// Build fence with destructured variables
+							loopFence = fence + "\nlet " + ctrl.forVar + " = " + anyToString(item) + ";"
+						} else if strings.HasPrefix(ctrl.forVar, "{") {
+							// Object destructuring: {a, b}
+							itemMap, ok := item.(map[string]any)
+							if ok {
+								for _, varName := range ctrl.forDestructureVars {
+									if val, exists := itemMap[varName]; exists {
+										newProps[varName] = val
+									}
+								}
+							}
+							// Build fence with destructured variables
+							loopFence = fence + "\nlet " + ctrl.forVar + " = " + anyToString(item) + ";"
+						}
+					} else {
+						// Normal (non-destructuring) case
+						newProps[ctrl.forVar] = item
+						loopFence = fence + "\nlet " + ctrl.forVar + " = " + anyToString(item) + ";"
+					}
+
 					markup, newScopeStack := evalControlTree(ctrl.children, scopeStack, newProps, pScopeExp, loopFence, components, pattrEnabled, templateDir)
 					if pattrEnabled {
 						markup = processLoopIteration(markup, loopFence, ctrl.forVar, item, currentScopeId, idx, pattrEnabled)
