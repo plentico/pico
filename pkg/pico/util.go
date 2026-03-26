@@ -85,8 +85,15 @@ func setProps(fence string, props map[string]any) (string, string) {
 	fence = rePropDefaults.ReplaceAllString(fence, "let $1$2;")
 	pScopeExp = rePropDefaults.ReplaceAllString(pScopeExp, "$1$2;")
 
-	reLocalVars := regexp.MustCompile(`(?:let|const|var)\s([a-zA-Z_$]*)(\s?=\s?(.*?))?;`)
-	pScopeExp = reLocalVars.ReplaceAllString(pScopeExp, "$1$2;")
+	// First, ensure all variable declarations end with semicolons
+	// Add semicolons before let/var/const keywords if missing
+	reAddSemicolon := regexp.MustCompile(`([^;\s])\s*((?:let|const|var)\s)`)
+	pScopeExp = reAddSemicolon.ReplaceAllString(pScopeExp, "$1;$2")
+
+	// Strip let/const/var keywords
+	// Handle simple pattern: (let|var|const) varName...
+	reLocalVars := regexp.MustCompile(`(?:let|const|var)\s+`)
+	pScopeExp = reLocalVars.ReplaceAllString(pScopeExp, "")
 
 	pScopeExp = makeAttrStr(pScopeExp)
 	return fence, pScopeExp
@@ -97,6 +104,8 @@ func makeAttrStr(str string) string {
 	str = reComments.ReplaceAllString(str, "")
 
 	str = strings.TrimSpace(str)
+	// Replace line breaks and tabs with empty string, but preserve spacing around operators
+	str = strings.ReplaceAll(str, "\t", "")
 	str = strings.ReplaceAll(str, "\n", "")
 	str = strings.ReplaceAll(str, "'", "\\'")
 	str = strings.ReplaceAll(str, "\"", "'")
