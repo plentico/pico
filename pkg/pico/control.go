@@ -543,33 +543,17 @@ func evalControlTree(controlTree []control, scopeStack []scopeStackItem, props m
 							loopFence = fence + "\nlet " + ctrl.forVar + " = " + anyToString(item) + ";"
 						} else if strings.HasPrefix(ctrl.forVar, "{") {
 							// Object destructuring: {a, b}
-							// Try map first
-							itemMap, isMap := item.(map[string]any)
-							itemArray, isArray := item.([]any)
-
-							if isMap {
-								// It's actually an object, use property names
+							// Used when iterating over arrays of objects: for (let {name, age} of people)
+							itemMap, ok := item.(map[string]any)
+							if ok {
 								for _, varName := range ctrl.forDestructureVars {
 									if val, exists := itemMap[varName]; exists {
 										newProps[varName] = val
 									}
 								}
-							} else if isArray {
-								// It's an array (e.g., from Object.entries()), use positional - convert to object-like syntax
-								for i, varName := range ctrl.forDestructureVars {
-									if i < len(itemArray) {
-										newProps[varName] = itemArray[i]
-									}
-								}
 							}
-							// Build fence - for arrays use array destructuring notation instead
-							if isArray {
-								// Convert {k, v} to [k, v] for arrays
-								arrayPattern := "[" + strings.Join(ctrl.forDestructureVars, ", ") + "]"
-								loopFence = fence + "\nlet " + arrayPattern + " = " + anyToString(item) + ";"
-							} else {
-								loopFence = fence + "\nlet " + ctrl.forVar + " = " + anyToString(item) + ";"
-							}
+							// Build fence with destructured variables
+							loopFence = fence + "\nlet " + ctrl.forVar + " = " + anyToString(item) + ";"
 						}
 					} else {
 						// Normal (non-destructuring) case
