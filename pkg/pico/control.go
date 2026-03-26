@@ -79,17 +79,38 @@ func buildControlTree(markup string) ([]control, error) {
 			startOpenForIndex := i
 
 			// Find the closing } for the {for ...} statement
-			// Need to count nested {} to find the right one
-			braceCount := 0
+			// Skip over object literals for smarter brace counting
+			// Look for the pattern: "} (of|in) " to know we're past the variable declaration
 			endOpenForIndex := -1
-			for j := startOpenForIndex; j < len(markup); j++ {
-				if markup[j] == '{' {
-					braceCount++
-				} else if markup[j] == '}' {
-					braceCount--
-					if braceCount == 0 {
-						endOpenForIndex = j
-						break
+
+			// Simple approach: find "of" or "in" keyword first, then find closing }
+			forStart := startOpenForIndex + len("{for ")
+			ofPos := strings.Index(markup[forStart:], " of ")
+			inPos := strings.Index(markup[forStart:], " in ")
+
+			keywordPos := -1
+			if ofPos != -1 && (inPos == -1 || ofPos < inPos) {
+				keywordPos = forStart + ofPos
+			} else if inPos != -1 {
+				keywordPos = forStart + inPos
+			}
+
+			if keywordPos != -1 {
+				// Find the closing } for the {for} statement by counting braces
+				// Start after the keyword + " of " or " in "
+				searchStart := keywordPos + 4 // length of " of " or " in "
+				braceCount := 1               // We're inside {for
+				endOpenForIndex = -1
+
+				for j := searchStart; j < len(markup); j++ {
+					if markup[j] == '{' {
+						braceCount++
+					} else if markup[j] == '}' {
+						braceCount--
+						if braceCount == 0 {
+							endOpenForIndex = j
+							break
+						}
 					}
 				}
 			}
@@ -450,7 +471,12 @@ func evalControlTree(controlTree []control, scopeStack []scopeStackItem, props m
 				}
 			}
 		} else if ctrl.isForLoop {
-			iterableVal := evalJS(ctrl.forCollection, fence)
+			// If the collection starts with {, wrap it in parentheses for proper object literal parsing
+			collection := ctrl.forCollection
+			if strings.HasPrefix(strings.TrimSpace(collection), "{") && !strings.HasPrefix(strings.TrimSpace(collection), "{[") {
+				collection = "(" + collection + ")"
+			}
+			iterableVal := evalJS(collection, fence)
 
 			// Check if it's an array (for "of") or object (for "in")
 			items, isArray := iterableVal.([]any)
@@ -513,20 +539,37 @@ func evalControlTree(controlTree []control, scopeStack []scopeStackItem, props m
 									}
 								}
 							}
-							// Build fence with destructured variables
+							// Build fence with destructured variables - just the destructuring statement
 							loopFence = fence + "\nlet " + ctrl.forVar + " = " + anyToString(item) + ";"
 						} else if strings.HasPrefix(ctrl.forVar, "{") {
 							// Object destructuring: {a, b}
-							itemMap, ok := item.(map[string]any)
-							if ok {
+							// Try map first
+							itemMap, isMap := item.(map[string]any)
+							itemArray, isArray := item.([]any)
+
+							if isMap {
+								// It's actually an object, use property names
 								for _, varName := range ctrl.forDestructureVars {
 									if val, exists := itemMap[varName]; exists {
 										newProps[varName] = val
 									}
 								}
+							} else if isArray {
+								// It's an array (e.g., from Object.entries()), use positional - convert to object-like syntax
+								for i, varName := range ctrl.forDestructureVars {
+									if i < len(itemArray) {
+										newProps[varName] = itemArray[i]
+									}
+								}
 							}
-							// Build fence with destructured variables
-							loopFence = fence + "\nlet " + ctrl.forVar + " = " + anyToString(item) + ";"
+							// Build fence - for arrays use array destructuring notation instead
+							if isArray {
+								// Convert {k, v} to [k, v] for arrays
+								arrayPattern := "[" + strings.Join(ctrl.forDestructureVars, ", ") + "]"
+								loopFence = fence + "\nlet " + arrayPattern + " = " + anyToString(item) + ";"
+							} else {
+								loopFence = fence + "\nlet " + ctrl.forVar + " = " + anyToString(item) + ";"
+							}
 						}
 					} else {
 						// Normal (non-destructuring) case
