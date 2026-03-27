@@ -2,6 +2,7 @@ package pico
 
 import (
 	"fmt"
+	"log"
 	"path/filepath"
 	"regexp"
 	"strings"
@@ -378,6 +379,11 @@ func evalControlTree(controlTree []control, scopeStack []scopeStackItem, props m
 				ifFullCondition := buildFullCondition(ctrl.ifCondition)
 				ifMarkup, newScopeStack := evalControlTree(ctrl.children, scopeStack, props, pScopeExp, fence, components, pattrEnabled, templateDir, ifFullCondition)
 
+				// Debug: Log if markup is empty when modifiers are present
+				if parentHasModifiers && strings.TrimSpace(ifMarkup) == "" {
+					log.Printf("Warning: if statement with modifiers produced empty content (condition: %s, children: %d)", ctrl.ifCondition, len(ctrl.children))
+				}
+
 				// Use addConditionalAttributes if modifiers are present, otherwise use addPShowAttribute
 				var ifMarkupWithAttrs string
 				var err error
@@ -389,6 +395,8 @@ func evalControlTree(controlTree []control, scopeStack []scopeStackItem, props m
 				if err == nil {
 					markupBuilder.WriteString(ifMarkupWithAttrs)
 					scopeStack = newScopeStack
+				} else {
+					log.Printf("Warning: Failed to process if statement (condition: %s): %v", ifFullCondition, err)
 				}
 				collectIfConditions = append(collectIfConditions, ctrl.ifCondition)
 
@@ -413,6 +421,8 @@ func evalControlTree(controlTree []control, scopeStack []scopeStackItem, props m
 						if err == nil {
 							markupBuilder.WriteString(elseIfMarkupWithAttrs)
 							scopeStack = newScopeStack
+						} else {
+							log.Printf("Warning: Failed to process else-if statement (condition: %s): %v", fullCondition, err)
 						}
 						collectIfConditions = append(collectIfConditions, child.elseIfCondition)
 					}
@@ -439,6 +449,8 @@ func evalControlTree(controlTree []control, scopeStack []scopeStackItem, props m
 						if err == nil {
 							markupBuilder.WriteString(elseMarkupWithAttrs)
 							scopeStack = newScopeStack
+						} else {
+							log.Printf("Warning: Failed to process else statement (condition: %s): %v", fullCondition, err)
 						}
 					}
 				}

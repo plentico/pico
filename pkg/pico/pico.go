@@ -4,6 +4,7 @@ package pico
 
 import (
 	"encoding/json"
+	"log"
 	"os"
 	"path/filepath"
 	"strings"
@@ -202,7 +203,13 @@ func addConditionalAttributes(htmlStr string, condition string, parsedIfConditio
 	// Parse the HTML string
 	nodes, err := parseNoFix(htmlStr)
 	if err != nil {
+		log.Printf("Warning: addConditionalAttributes failed to parse HTML (condition: %s): %v", condition, err)
+		log.Printf("HTML content length: %d, first 100 chars: %s", len(htmlStr), htmlStr[:min(100, len(htmlStr))])
 		return "", err
+	}
+
+	if len(nodes) == 0 {
+		log.Printf("Warning: addConditionalAttributes got 0 nodes from HTML (condition: %s, HTML length: %d)", condition, len(htmlStr))
 	}
 
 	// Get modifiers
