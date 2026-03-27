@@ -374,6 +374,9 @@ func traverse(node *html.Node, scopedElements []scopedElement, fence string, use
 					id = attr.Val
 				}
 				if attr.Key == "class" {
+					// Check if this class attribute has dynamic content
+					hasDynamicContent := strings.Contains(attr.Val, "{") && strings.Contains(attr.Val, "}")
+
 					classes = strings.Split(attr.Val, " ")
 					alreadyScoped := false
 					for _, class := range classes {
@@ -382,7 +385,10 @@ func traverse(node *html.Node, scopedElements []scopedElement, fence string, use
 							scopedClass = class
 						}
 					}
-					if !alreadyScoped {
+
+					// If not scoped yet, add the scoped class
+					// For dynamic classes, we'll add it to the evaluated output later
+					if !alreadyScoped && !hasDynamicContent {
 						node.Attr[i].Val += " " + scopedClass
 					}
 				}
@@ -424,14 +430,19 @@ func traverse(node *html.Node, scopedElements []scopedElement, fence string, use
 										Key: "p-class",
 										Val: "`" + strings.ReplaceAll(strings.ReplaceAll(attr.Val, "{", "${"), "\"", "'") + "`",
 									})
+									// Evaluate dynamic class and add scoped class to static attribute
+									evaluated := evalAllBrackets(attr.Val, fence)
+									node.Attr[i].Val = strings.TrimSpace(evaluated + " " + scopedClass)
 								} else {
 									node.Attr = append(node.Attr, html.Attribute{
 										Key: "p-attr:" + attr.Key,
 										Val: "`" + strings.ReplaceAll(strings.ReplaceAll(attr.Val, "{", "${"), "\"", "'") + "`",
 									})
+									node.Attr[i].Val = evalAllBrackets(attr.Val, fence)
 								}
+							} else {
+								node.Attr[i].Val = evalAllBrackets(attr.Val, fence)
 							}
-							node.Attr[i].Val = evalAllBrackets(attr.Val, fence)
 						}
 					}
 				}
