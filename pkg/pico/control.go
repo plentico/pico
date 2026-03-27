@@ -476,6 +476,12 @@ func evalControlTree(controlTree []control, scopeStack []scopeStackItem, props m
 			if strings.HasPrefix(strings.TrimSpace(collection), "{") && !strings.HasPrefix(strings.TrimSpace(collection), "{[") {
 				collection = "(" + collection + ")"
 			}
+
+			// Wrap .entries() and other iterator methods with Array.from() for SSR
+			if strings.Contains(collection, ".entries()") || strings.Contains(collection, ".keys()") || strings.Contains(collection, ".values()") {
+				collection = "Array.from(" + collection + ")"
+			}
+
 			iterableVal := evalJS(collection, fence)
 
 			// Check if it's an array (for "of") or object (for "in")
