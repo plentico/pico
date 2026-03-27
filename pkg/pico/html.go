@@ -392,7 +392,7 @@ func traverse(node *html.Node, scopedElements []scopedElement, fence string, use
 					classes = append(classes, pClassNames...)
 				}
 				if strings.Contains(attr.Val, "{") && strings.Contains(attr.Val, "}") {
-					if attr.Key != "p-text" && attr.Key != "p-scope" && !strings.HasPrefix(attr.Key, "p-attr") && !strings.HasPrefix(attr.Key, "p-on") && attr.Key != "p-model" {
+					if attr.Key != "p-text" && attr.Key != "p-scope" && attr.Key != "p-class" && !strings.HasPrefix(attr.Key, "p-attr") && !strings.HasPrefix(attr.Key, "p-on") && attr.Key != "p-model" {
 						if strings.HasPrefix(attr.Key, "on") {
 							eventName := attr.Key[2:]
 							expr := processEventHandler(attr.Val)
@@ -418,10 +418,18 @@ func traverse(node *html.Node, scopedElements []scopedElement, fence string, use
 							node.Attr[i].Val = evalAllBrackets(attr.Val, fence)
 						} else {
 							if usePattr {
-								node.Attr = append(node.Attr, html.Attribute{
-									Key: "p-attr:" + attr.Key,
-									Val: "`" + strings.ReplaceAll(strings.ReplaceAll(attr.Val, "{", "${"), "\"", "'") + "`",
-								})
+								// Use p-class for dynamic class attributes to preserve static/scoped classes
+								if attr.Key == "class" {
+									node.Attr = append(node.Attr, html.Attribute{
+										Key: "p-class",
+										Val: "`" + strings.ReplaceAll(strings.ReplaceAll(attr.Val, "{", "${"), "\"", "'") + "`",
+									})
+								} else {
+									node.Attr = append(node.Attr, html.Attribute{
+										Key: "p-attr:" + attr.Key,
+										Val: "`" + strings.ReplaceAll(strings.ReplaceAll(attr.Val, "{", "${"), "\"", "'") + "`",
+									})
+								}
 							}
 							node.Attr[i].Val = evalAllBrackets(attr.Val, fence)
 						}
@@ -531,10 +539,18 @@ func processLoopNode(node *html.Node, loopFence string, usePattr bool) {
 						node.Attr[i].Val = evalAllBrackets(attr.Val, loopFence)
 					} else {
 						if usePattr {
-							node.Attr = append(node.Attr, html.Attribute{
-								Key: "p-attr:" + attr.Key,
-								Val: "`" + strings.ReplaceAll(strings.ReplaceAll(attr.Val, "{", "${"), "\"", "'") + "`",
-							})
+							// Use p-class for dynamic class attributes to preserve static/scoped classes
+							if attr.Key == "class" {
+								node.Attr = append(node.Attr, html.Attribute{
+									Key: "p-class",
+									Val: "`" + strings.ReplaceAll(strings.ReplaceAll(attr.Val, "{", "${"), "\"", "'") + "`",
+								})
+							} else {
+								node.Attr = append(node.Attr, html.Attribute{
+									Key: "p-attr:" + attr.Key,
+									Val: "`" + strings.ReplaceAll(strings.ReplaceAll(attr.Val, "{", "${"), "\"", "'") + "`",
+								})
+							}
 						}
 						node.Attr[i].Val = evalAllBrackets(attr.Val, loopFence)
 					}
