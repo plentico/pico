@@ -426,10 +426,14 @@ func traverse(node *html.Node, scopedElements []scopedElement, fence string, use
 							if usePattr {
 								// Use p-class for dynamic class attributes to preserve static/scoped classes
 								if attr.Key == "class" {
+									pClassVal := "`" + strings.ReplaceAll(strings.ReplaceAll(attr.Val, "{", "${"), "\"", "'") + "`"
 									node.Attr = append(node.Attr, html.Attribute{
 										Key: "p-class",
-										Val: "`" + strings.ReplaceAll(strings.ReplaceAll(attr.Val, "{", "${"), "\"", "'") + "`",
+										Val: pClassVal,
 									})
+									// Extract dynamic class names for CSS treeshaking
+									pClassNames := extractPClassNames(pClassVal)
+									classes = append(classes, pClassNames...)
 									// Evaluate dynamic class and add scoped class to static attribute
 									evaluated := evalAllBrackets(attr.Val, fence)
 									node.Attr[i].Val = strings.TrimSpace(evaluated + " " + scopedClass)
