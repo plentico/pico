@@ -33,8 +33,8 @@ func TestIDWithPseudoClassScoping(t *testing.T) {
 	css := `#plenti_cms.menu-visible { right: 0; }`
 	result := scopeCSS(css, scopedElements)
 
-	// Should use parent's scoped class for the ID
-	if !strings.Contains(result, "#plenti_cms.menu-visible.p-parentClass") {
-		t.Errorf("Expected '#plenti_cms.menu-visible.p-parentClass', got: %s", result)
+	// Should scope both the ID and the class independently
+	if !strings.Contains(result, "#plenti_cms.p-parentClass.menu-visible.p-parentClass") {
+		t.Errorf("Expected '#plenti_cms.p-parentClass.menu-visible.p-parentClass', got: %s", result)
 	}
 }
