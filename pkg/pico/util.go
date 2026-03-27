@@ -85,6 +85,15 @@ func setProps(fence string, props map[string]any) (string, string) {
 	fence = rePropDefaults.ReplaceAllString(fence, "let $1$2;")
 	pScopeExp = rePropDefaults.ReplaceAllString(pScopeExp, "$1$2;")
 
+	// Ensure the fence ends with a semicolon (if it doesn't already)
+	// This handles the case where the last statement omits the trailing semicolon
+	// This is critical because JS allows omitting semicolons, but when we convert to
+	// single-line, we need them to separate statements
+	pScopeExp = strings.TrimSpace(pScopeExp)
+	if pScopeExp != "" && !strings.HasSuffix(pScopeExp, ";") {
+		pScopeExp = pScopeExp + ";"
+	}
+
 	// First, ensure all variable declarations end with semicolons
 	// Add semicolons before let/var/const keywords if missing
 	reAddSemicolon := regexp.MustCompile(`([^;\s])\s*((?:let|const|var)\s)`)
