@@ -202,6 +202,51 @@ prop age = 25;  // With default
 <Child name="Jane" />  <!-- Uses default age -->
 ```
 
+#### 2-Way Binding with Sync Props
+
+Use the asterisk `*` prefix to enable 2-way binding between parent and child components. Changes in the child component will automatically update the parent's variable:
+
+```html
+<!-- Parent component -->
+---
+let count = 0;
+---
+
+<div>
+  Parent count: {count}
+  <Counter {*count} />  <!-- Shorthand: child prop name matches parent -->
+</div>
+
+<!-- Counter component -->
+---
+prop count;
+---
+
+<div>
+  Count: {count}
+  <button onclick="{count++}">Increment</button>
+</div>
+```
+
+When the button is clicked in the child component, both the child's `count` and the parent's `count` will update.
+
+**Sync Prop Syntax:**
+
+- **Shorthand**: `{*count}` - Child prop name matches parent variable name
+- **Explicit mapping**: `*childCount={parentCount}` - Map parent variable to different child prop name
+- **Mixed props**: `<Child {*count} {title} />` - Combine 2-way sync props with regular 1-way props
+
+**Generated Output:**
+
+Sync props use the `p-scope:sync` attribute for Pattr's 2-way binding:
+
+```html
+<div p-scope:sync="count = count;">
+  Count: <span>0</span>
+  <button p-on:click="count++">Increment</button>
+</div>
+```
+
 ### Expressions
 
 Use curly braces `{}` for JavaScript expressions:

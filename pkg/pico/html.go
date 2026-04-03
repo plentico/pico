@@ -157,7 +157,7 @@ func extractPClassNames(pClassVal string) []string {
 	return classes
 }
 
-func scopeHTML(markup string, props map[string]any, pScopeExp string, fence string, usePattr bool) (string, []scopedElement) {
+func scopeHTML(markup string, props CompProps, pScopeExp string, fence string, usePattr bool) (string, []scopedElement) {
 	scopedElements := []scopedElement{}
 	var markupBuilder strings.Builder
 
@@ -166,12 +166,21 @@ func scopeHTML(markup string, props map[string]any, pScopeExp string, fence stri
 		return markup, scopedElements
 	}
 
+	// Combine regular and sync props for root data JSON (used in CMS forms, etc.)
+	allProps := make(map[string]any)
+	for k, v := range props.Regular {
+		allProps[k] = v
+	}
+	for k, v := range props.Sync {
+		allProps[k] = v
+	}
+
 	for _, node := range nodes {
 		if node.Type == html.ElementNode && node.Data == "html" {
 			for c := node.FirstChild; c != nil; c = c.NextSibling {
 				if c.Type == html.ElementNode && c.Data == "head" {
-					if len(props) > 0 {
-						rootData, _ := json.Marshal(props)
+					if len(allProps) > 0 {
+						rootData, _ := json.Marshal(allProps)
 						rootDataScript := &html.Node{
 							Type: html.ElementNode,
 							Data: "script",
@@ -195,11 +204,32 @@ func scopeHTML(markup string, props map[string]any, pScopeExp string, fence stri
 			}
 		}
 
-		if usePattr && node.Type == html.ElementNode && (len(props) > 0 || pScopeExp != "") {
+		if usePattr && node.Type == html.ElementNode && ((len(props.Regular) > 0 || len(props.Sync) > 0) || pScopeExp != "") {
 			if node.Data != "html" {
-				pScopeExp = flattenCompArgs(props) + pScopeExp
+				// Add regular props to p-scope (skip if k==v)
+				regularScope := flattenCompArgs(props.Regular)
+				// Add sync props to p-scope:sync (always include even if k==v)
+				syncScope := flattenSyncCompArgs(props.Sync)
+
+				if regularScope != "" {
+					pScopeExp = regularScope + pScopeExp
+				}
+
+				// Add p-scope attribute
+				if pScopeExp != "" {
+					node.Attr = append(node.Attr, html.Attribute{Key: "p-scope", Val: pScopeExp})
+				}
+
+				// Add p-scope:sync attribute if there are sync props
+				if syncScope != "" {
+					node.Attr = append(node.Attr, html.Attribute{Key: "p-scope:sync", Val: syncScope})
+				}
+			} else {
+				// For html tag, only add regular p-scope
+				if pScopeExp != "" {
+					node.Attr = append(node.Attr, html.Attribute{Key: "p-scope", Val: pScopeExp})
+				}
 			}
-			node.Attr = append(node.Attr, html.Attribute{Key: "p-scope", Val: pScopeExp})
 		}
 
 		node, scopedElements = traverse(node, scopedElements, fence, usePattr)

@@ -34,11 +34,11 @@ type control struct {
 
 	isComp    bool
 	compName  string
-	compProps map[string]any
+	compProps CompProps
 
 	isDynamicComp    bool
 	dynamicCompPath  string
-	dynamicCompProps map[string]any
+	dynamicCompProps CompProps
 
 	children []control
 }
@@ -591,7 +591,11 @@ func evalControlTree(controlTree []control, scopeStack []scopeStackItem, props m
 			}
 		} else if ctrl.isComp {
 			newProps := make(map[string]any)
-			for prop_name, prop_value := range ctrl.compProps {
+			// Evaluate both regular and sync props
+			for prop_name, prop_value := range ctrl.compProps.Regular {
+				newProps[prop_name] = evalJS(fmt.Sprintf(`%s`, prop_value), fence)
+			}
+			for prop_name, prop_value := range ctrl.compProps.Sync {
 				newProps[prop_name] = evalJS(fmt.Sprintf(`%s`, prop_value), fence)
 			}
 			var compPath string
@@ -611,7 +615,11 @@ func evalControlTree(controlTree []control, scopeStack []scopeStackItem, props m
 			markupBuilder.WriteString(markup)
 		} else if ctrl.isDynamicComp {
 			newProps := make(map[string]any)
-			for prop_name, prop_value := range ctrl.dynamicCompProps {
+			// Evaluate both regular and sync props
+			for prop_name, prop_value := range ctrl.dynamicCompProps.Regular {
+				newProps[prop_name] = evalJS(fmt.Sprintf(`%s`, prop_value), fence)
+			}
+			for prop_name, prop_value := range ctrl.dynamicCompProps.Sync {
 				newProps[prop_name] = evalJS(fmt.Sprintf(`%s`, prop_value), fence)
 			}
 			evaluatedCompPath := evalAllBrackets(ctrl.dynamicCompPath, fence)

@@ -18,6 +18,12 @@ type Component struct {
 	Path string
 }
 
+// CompProps holds both regular and sync (2-way binding) component props
+type CompProps struct {
+	Regular map[string]any // Regular one-way props
+	Sync    map[string]any // Sync props for 2-way binding (use p-scope:sync)
+}
+
 // scopeStackItem holds scoped elements, style, and script for a component scope.
 type scopeStackItem struct {
 	scopedElements []scopedElement
@@ -71,7 +77,13 @@ func RenderRoot(path string, props map[string]any, noPattr ...bool) (string, str
 	}
 	markup, script, style, scopeStack, pScopeExp, fence := Render(path, props, []scopeStackItem{}, !usePattr)
 	// Create scoped classes and add to html
-	markup, scopedElements := scopeHTML(markup, props, pScopeExp, fence, usePattr)
+	// RenderRoot has root-level props that need to be included in p-root-data
+	// Put them in Regular props since root props are not component props
+	rootCompProps := CompProps{
+		Regular: props,
+		Sync:    map[string]any{},
+	}
+	markup, scopedElements := scopeHTML(markup, rootCompProps, pScopeExp, fence, usePattr)
 	scopeStack = append(scopeStack, scopeStackItem{
 		scopedElements: scopedElements,
 		style:          style,

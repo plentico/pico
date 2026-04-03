@@ -172,15 +172,43 @@ func getComponents(path, fence string) (string, []Component) {
 	return fence, components
 }
 
-func getCompArgs(comp_decl string) map[string]any {
+func getCompArgs(comp_decl string) CompProps {
 	comp_args := strings.SplitAfter(comp_decl, "}")
-	comp_props := map[string]any{}
+	compProps := CompProps{
+		Regular: map[string]any{},
+		Sync:    map[string]any{},
+	}
+
 	for _, comp_arg := range comp_args {
 		comp_arg = strings.TrimSpace(comp_arg)
+
+		// Handle {*myVar} syntax for sync props
+		if strings.HasPrefix(comp_arg, "{*") && strings.HasSuffix(comp_arg, "}") {
+			prop_name := strings.Trim(strings.TrimPrefix(comp_arg, "{"), "*}")
+			compProps.Sync[prop_name] = prop_name
+			continue
+		}
+
+		// Handle {myVar} syntax for regular props
 		if strings.HasPrefix(comp_arg, "{") && strings.HasSuffix(comp_arg, "}") {
 			prop_name := strings.Trim(comp_arg, "{}")
-			comp_props[prop_name] = prop_name
+			compProps.Regular[prop_name] = prop_name
+			continue
 		}
+
+		// Handle *myVar={value} syntax for sync props
+		if strings.HasPrefix(comp_arg, "*") && strings.Contains(comp_arg, "={") && strings.HasSuffix(comp_arg, "}") {
+			nameEndPos := strings.IndexRune(comp_arg, '=')
+			prop_name := strings.TrimPrefix(comp_arg[0:nameEndPos], "*")
+
+			valueStartPos := strings.IndexRune(comp_arg, '{')
+			valueEndPos := strings.IndexRune(comp_arg, '}')
+
+			compProps.Sync[prop_name] = comp_arg[valueStartPos+1 : valueEndPos]
+			continue
+		}
+
+		// Handle myVar={value} syntax for regular props
 		if strings.Contains(comp_arg, "={") && strings.HasSuffix(comp_arg, "}") {
 			nameEndPos := strings.IndexRune(comp_arg, '=')
 			prop_name := comp_arg[0:nameEndPos]
@@ -188,10 +216,10 @@ func getCompArgs(comp_decl string) map[string]any {
 			valueStartPos := strings.IndexRune(comp_arg, '{')
 			valueEndPos := strings.IndexRune(comp_arg, '}')
 
-			comp_props[prop_name] = comp_arg[valueStartPos+1 : valueEndPos]
+			compProps.Regular[prop_name] = comp_arg[valueStartPos+1 : valueEndPos]
 		}
 	}
-	return comp_props
+	return compProps
 }
 
 func formatArray(value any) string {
@@ -264,6 +292,16 @@ func flattenCompArgs(m map[string]any) string {
 		if k != v {
 			parts = append(parts, fmt.Sprintf("%s = %s;", k, v))
 		}
+	}
+	return makeAttrStr(strings.Join(parts, " "))
+}
+
+// flattenSyncCompArgs converts sync props to assignments, always including the assignment
+// even when k == v (e.g., count = count) as this is required for 2-way binding
+func flattenSyncCompArgs(m map[string]any) string {
+	parts := make([]string, 0, len(m))
+	for k, v := range m {
+		parts = append(parts, fmt.Sprintf("%s = %s;", k, v))
 	}
 	return makeAttrStr(strings.Join(parts, " "))
 }
