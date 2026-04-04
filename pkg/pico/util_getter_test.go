@@ -103,3 +103,31 @@ func TestEvalJSWithValidJS(t *testing.T) {
 		t.Errorf("evalJS should return 'hello', got: %v", result)
 	}
 }
+
+func TestGetterSetterWithSetPropsFix(t *testing.T) {
+	// Test the full flow: setProps should add semicolon to fence, then evalJS should work
+	// This test verifies that the fix for getter/setters without trailing semicolons works
+	fence := `let text = "hello";
+let localVars = {
+	get text() {return text;},
+	set text(value) {text = value;}
+}`
+
+	props := map[string]any{}
+
+	// setProps should add the trailing semicolon to fence
+	fixedFence, _ := setProps(fence, props)
+
+	t.Logf("Fixed fence: %s", fixedFence)
+
+	// Now evalJS should work because fence ends with semicolon
+	jsCode := "localVars.text"
+	result := evalJS(jsCode, fixedFence)
+
+	t.Logf("Result: %v", result)
+
+	// Should be able to access the getter
+	if result != "hello" {
+		t.Errorf("evalJS should return 'hello', got: %v", result)
+	}
+}

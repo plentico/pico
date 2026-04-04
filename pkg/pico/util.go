@@ -89,6 +89,12 @@ func setProps(fence string, props map[string]any) (string, string) {
 	// This handles the case where the last statement omits the trailing semicolon
 	// This is critical because JS allows omitting semicolons, but when we convert to
 	// single-line, we need them to separate statements
+	//
+	// Apply to both fence (used for JS evaluation) and pScopeExp (used for p-scope attribute)
+	fence = strings.TrimSpace(fence)
+	if fence != "" && !strings.HasSuffix(fence, ";") {
+		fence = fence + ";"
+	}
 	pScopeExp = strings.TrimSpace(pScopeExp)
 	if pScopeExp != "" && !strings.HasSuffix(pScopeExp, ";") {
 		pScopeExp = pScopeExp + ";"
@@ -97,6 +103,7 @@ func setProps(fence string, props map[string]any) (string, string) {
 	// First, ensure all variable declarations end with semicolons
 	// Add semicolons before let/var/const keywords if missing
 	reAddSemicolon := regexp.MustCompile(`([^;\s])\s*((?:let|const|var)\s)`)
+	fence = reAddSemicolon.ReplaceAllString(fence, "$1;$2")
 	pScopeExp = reAddSemicolon.ReplaceAllString(pScopeExp, "$1;$2")
 
 	// Strip let/const/var keywords
