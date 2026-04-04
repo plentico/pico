@@ -140,6 +140,12 @@ func evalJS(jsCode string, fence string) any {
 	vm := goja.New()
 	goja_value, err := vm.RunString(fence + jsCode)
 	if err != nil {
+		_, fenceErr := vm.RunString(fence)
+		if fenceErr != nil {
+			log.Printf("Frontmatter/Fence Error: %v", fenceErr)
+		}
+		// Log error to help diagnose fence/JS issues
+		log.Printf("Error evaluating JS expression '%s': %v", jsCode, err)
 		return ""
 	}
 	return goja_value.Export()
