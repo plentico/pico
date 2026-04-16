@@ -206,10 +206,10 @@ func scopeHTML(markup string, props CompProps, pScopeExp string, fence string, u
 
 		if usePattr && node.Type == html.ElementNode && ((len(props.Regular) > 0 || len(props.Sync) > 0) || pScopeExp != "") {
 			if node.Data != "html" {
-				// Add regular props to p-scope (skip if k==v)
+				// Add regular props to p-scope
 				regularScope := flattenCompArgs(props.Regular)
-				// Add sync props to p-scope:sync (always include even if k==v)
-				syncScope := flattenSyncCompArgs(props.Sync)
+				// Add sync props to p-scope:sync
+				syncScope := flattenCompArgs(props.Sync)
 
 				if regularScope != "" {
 					pScopeExp = regularScope + pScopeExp

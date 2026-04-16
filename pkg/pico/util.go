@@ -147,7 +147,12 @@ func evalJS(jsCode string, fence string) any {
 	vm := goja.New()
 	goja_value, err := vm.RunString(fence + jsCode)
 	if err != nil {
-		_, fenceErr := vm.RunString(fence)
+		// Use a fresh VM to check if the fence itself is valid.
+		// Re-using the same vm after a failed RunString can cause false
+		// "already declared" SyntaxErrors because let/const bindings from
+		// the first (failed) run still exist in the VM's scope.
+		fenceVm := goja.New()
+		_, fenceErr := fenceVm.RunString(fence)
 		if fenceErr != nil {
 			log.Printf("Frontmatter/Fence Error: %v", fenceErr)
 		}
@@ -300,18 +305,6 @@ func anyToString(value any) string {
 }
 
 func flattenCompArgs(m map[string]any) string {
-	parts := make([]string, 0, len(m))
-	for k, v := range m {
-		if k != v {
-			parts = append(parts, fmt.Sprintf("%s = %s;", k, v))
-		}
-	}
-	return makeAttrStr(strings.Join(parts, " "))
-}
-
-// flattenSyncCompArgs converts sync props to assignments, always including the assignment
-// even when k == v (e.g., count = count) as this is required for 2-way binding
-func flattenSyncCompArgs(m map[string]any) string {
 	parts := make([]string, 0, len(m))
 	for k, v := range m {
 		parts = append(parts, fmt.Sprintf("%s = %s;", k, v))
