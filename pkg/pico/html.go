@@ -427,6 +427,54 @@ func traverse(node *html.Node, scopedElements []scopedElement, fence string, use
 					pClassNames := extractPClassNames(attr.Val)
 					classes = append(classes, pClassNames...)
 				}
+				// Handle *value, *checked, *indeterminate on input elements for 2-way binding
+				if (attr.Key == "*value" || attr.Key == "*checked" || attr.Key == "*indeterminate") && node.Data == "input" {
+					expr := strings.TrimSpace(attr.Val)
+					if strings.HasPrefix(expr, "{") && strings.HasSuffix(expr, "}") {
+						varName := expr[1 : len(expr)-1]
+						if usePattr {
+							var pModelKey string
+							switch attr.Key {
+							case "*value":
+								pModelKey = "p-model"
+							case "*checked":
+								pModelKey = "p-model:checked"
+							case "*indeterminate":
+								pModelKey = "p-model:indeterminate"
+							}
+							node.Attr = append(node.Attr, html.Attribute{
+								Key: pModelKey,
+								Val: varName,
+							})
+						}
+						// Add SSR attribute with evaluated value
+						evaluated := evalJS(varName, fence)
+						switch attr.Key {
+						case "*value":
+							node.Attr = append(node.Attr, html.Attribute{
+								Key: "value",
+								Val: fmt.Sprintf("%v", evaluated),
+							})
+						case "*checked":
+							if isBoolAndTrue(evaluated) {
+								node.Attr = append(node.Attr, html.Attribute{
+									Key: "checked",
+									Val: "",
+								})
+							}
+							// *indeterminate: no HTML attribute for SSR (DOM property only)
+						}
+					} else {
+						// No {expr}, just convert *attr to regular attr
+						cleanKey := strings.TrimPrefix(attr.Key, "*")
+						node.Attr = append(node.Attr, html.Attribute{
+							Key: cleanKey,
+							Val: evalAllBrackets(attr.Val, fence),
+						})
+					}
+					attrsToRemove = append(attrsToRemove, i)
+					continue
+				}
 				if strings.Contains(attr.Val, "{") && strings.Contains(attr.Val, "}") {
 					if attr.Key != "p-text" && attr.Key != "p-scope" && attr.Key != "p-class" && !strings.HasPrefix(attr.Key, "p-attr") && !strings.HasPrefix(attr.Key, "p-on") && attr.Key != "p-model" {
 						if strings.HasPrefix(attr.Key, "on") {
@@ -440,18 +488,6 @@ func traverse(node *html.Node, scopedElements []scopedElement, fence string, use
 							}
 							// Mark this attribute for removal
 							attrsToRemove = append(attrsToRemove, i)
-						} else if attr.Key == "value" && node.Data == "input" {
-							expr := strings.TrimSpace(attr.Val)
-							if strings.HasPrefix(expr, "{") && strings.HasSuffix(expr, "}") {
-								varName := expr[1 : len(expr)-1]
-								if usePattr {
-									node.Attr = append(node.Attr, html.Attribute{
-										Key: "p-model",
-										Val: varName,
-									})
-								}
-							}
-							node.Attr[i].Val = evalAllBrackets(attr.Val, fence)
 						} else {
 							if usePattr {
 								// Use p-class for dynamic class attributes to preserve static/scoped classes
@@ -557,6 +593,54 @@ func processLoopNode(node *html.Node, loopFence string, usePattr bool) {
 		attrsToRemove := []int{}
 
 		for i, attr := range node.Attr {
+			// Handle *value, *checked, *indeterminate on input elements for 2-way binding in loops
+			if (attr.Key == "*value" || attr.Key == "*checked" || attr.Key == "*indeterminate") && node.Data == "input" {
+				expr := strings.TrimSpace(attr.Val)
+				if strings.HasPrefix(expr, "{") && strings.HasSuffix(expr, "}") {
+					varName := expr[1 : len(expr)-1]
+					if usePattr {
+						var pModelKey string
+						switch attr.Key {
+						case "*value":
+							pModelKey = "p-model"
+						case "*checked":
+							pModelKey = "p-model:checked"
+						case "*indeterminate":
+							pModelKey = "p-model:indeterminate"
+						}
+						node.Attr = append(node.Attr, html.Attribute{
+							Key: pModelKey,
+							Val: varName,
+						})
+					}
+					// Add SSR attribute with evaluated value
+					evaluated := evalJS(varName, loopFence)
+					switch attr.Key {
+					case "*value":
+						node.Attr = append(node.Attr, html.Attribute{
+							Key: "value",
+							Val: fmt.Sprintf("%v", evaluated),
+						})
+					case "*checked":
+						if isBoolAndTrue(evaluated) {
+							node.Attr = append(node.Attr, html.Attribute{
+								Key: "checked",
+								Val: "",
+							})
+						}
+						// *indeterminate: no HTML attribute for SSR (DOM property only)
+					}
+				} else {
+					// No {expr}, just convert *attr to regular attr
+					cleanKey := strings.TrimPrefix(attr.Key, "*")
+					node.Attr = append(node.Attr, html.Attribute{
+						Key: cleanKey,
+						Val: evalAllBrackets(attr.Val, loopFence),
+					})
+				}
+				attrsToRemove = append(attrsToRemove, i)
+				continue
+			}
 			if strings.Contains(attr.Val, "{") && strings.Contains(attr.Val, "}") {
 				if attr.Key != "p-text" && attr.Key != "p-scope" && !strings.HasPrefix(attr.Key, "p-attr") && !strings.HasPrefix(attr.Key, "p-on") && attr.Key != "p-model" {
 					if strings.HasPrefix(attr.Key, "on") {
@@ -570,18 +654,6 @@ func processLoopNode(node *html.Node, loopFence string, usePattr bool) {
 						}
 						// Mark this attribute for removal
 						attrsToRemove = append(attrsToRemove, i)
-					} else if attr.Key == "value" && node.Data == "input" {
-						expr := strings.TrimSpace(attr.Val)
-						if strings.HasPrefix(expr, "{") && strings.HasSuffix(expr, "}") {
-							varName := expr[1 : len(expr)-1]
-							if usePattr {
-								node.Attr = append(node.Attr, html.Attribute{
-									Key: "p-model",
-									Val: varName,
-								})
-							}
-						}
-						node.Attr[i].Val = evalAllBrackets(attr.Val, loopFence)
 					} else {
 						if usePattr {
 							// Use p-class for dynamic class attributes to preserve static/scoped classes

@@ -230,6 +230,50 @@ prop count;
 
 When the button is clicked in the child component, both the child's `count` and the parent's `count` will update.
 
+### Form Input 2-Way Binding
+
+Use the asterisk `*` prefix on `<input>` attributes to enable 2-way binding for form values. This generates `p-model` attributes for Pattr's client-side reactivity:
+
+```html
+---
+let username = "alice";
+let isActive = true;
+let isIndeterminate = false;
+---
+
+<!-- Text input -->
+<input *value="{username}" />
+
+<!-- Checkbox checked state -->
+<input type="checkbox" *checked="{isActive}" />
+
+<!-- Checkbox indeterminate state (DOM property) -->
+<input type="checkbox" *indeterminate="{isIndeterminate}" />
+```
+
+**Generated Output:**
+
+```html
+<!-- Text input -->
+<input p-model="username" value="alice" class="p-abc123" />
+
+<!-- Checkbox checked state -->
+<input type="checkbox" p-model:checked="isActive" checked="" class="p-abc123" />
+
+<!-- Checkbox indeterminate state -->
+<input type="checkbox" p-model:indeterminate="isIndeterminate" class="p-abc123" />
+```
+
+**Supported Attributes:**
+
+| Attribute | Pattr Directive | SSR Behavior |
+|-----------|-----------------|--------------|
+| `*value` | `p-model` | Sets `value` attribute with evaluated expression |
+| `*checked` | `p-model:checked` | Adds `checked=""` when expression is `true` |
+| `*indeterminate` | `p-model:indeterminate` | No HTML attribute (DOM property only) |
+
+> **Note:** Plain `value="{expr}"` without the asterisk will still evaluate the expression for SSR, but will **not** generate a `p-model` directive. Use the `*` prefix explicitly when you want 2-way binding.
+
 **Sync Prop Syntax:**
 
 - **Shorthand**: `{*count}` - Child prop name matches parent variable name
