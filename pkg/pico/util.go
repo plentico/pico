@@ -16,6 +16,16 @@ import (
 	"github.com/dop251/goja"
 )
 
+// currentTemplatePath tracks which template file is being rendered,
+// used to provide better error messages when JS evaluation fails.
+var currentTemplatePath string
+
+// suppressJSErrors suppresses evalJS error logging when true.
+// This is set by evalControlTree when recursing into dead branches
+// (e.g., {for} loops inside false {if} blocks during SSR with pattrEnabled)
+// to avoid noisy "expected" errors that don't affect final output.
+var suppressJSErrors bool
+
 func generateRandom() (string, error) {
 	chars := "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789"
 	var bytes = make([]byte, 6)
@@ -154,10 +164,22 @@ func evalJS(jsCode string, fence string) any {
 		fenceVm := goja.New()
 		_, fenceErr := fenceVm.RunString(fence)
 		if fenceErr != nil {
-			log.Printf("Frontmatter/Fence Error: %v", fenceErr)
+			if !suppressJSErrors {
+				if currentTemplatePath != "" {
+					log.Printf("Frontmatter/Fence Error in %s: %v", currentTemplatePath, fenceErr)
+				} else {
+					log.Printf("Frontmatter/Fence Error: %v", fenceErr)
+				}
+			}
 		}
 		// Log error to help diagnose fence/JS issues
-		log.Printf("Error evaluating JS expression '%s': %v", jsCode, err)
+		if !suppressJSErrors {
+			if currentTemplatePath != "" {
+				log.Printf("Error evaluating JS expression '%s' in %s: %v", jsCode, currentTemplatePath, err)
+			} else {
+				log.Printf("Error evaluating JS expression '%s': %v", jsCode, err)
+			}
+		}
 		return ""
 	}
 	return goja_value.Export()

@@ -45,6 +45,8 @@ var loopScopeCounter int
 // Render renders a template with the given props and returns markup, script, style,
 // scope stack, p-scope expression, and fence. This is typically used for nested components.
 func Render(path string, props map[string]any, scopeStack []scopeStackItem, noPattr ...bool) (string, string, string, []scopeStackItem, string, string) {
+	// Track the current template path for better error messages
+	currentTemplatePath = path
 	// Split template into parts
 	markup, fence, script, style := templateParts(path)
 	// Get list of imported components and remove imports from fence

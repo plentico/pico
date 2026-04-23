@@ -377,7 +377,17 @@ func evalControlTree(controlTree []control, scopeStack []scopeStackItem, props m
 				parentHasModifiers := ctrl.parsedIfCondition != nil && ctrl.parsedIfCondition.HasModifiers()
 
 				ifFullCondition := buildFullCondition(ctrl.ifCondition)
+				// Suppress expected JS errors in dead branches during SSR.
+				// When pattrEnabled is true, we recurse into all children to build the
+				// full template structure for hydration, but errors in branches whose
+				// condition is false are expected noise (e.g., .entries() on a non-array
+				// inside a guarded {if} block).
+				wasSuppressed := suppressJSErrors
+				if !isBoolAndTrue(evalJS(ifFullCondition, fence)) {
+					suppressJSErrors = true
+				}
 				ifMarkup, newScopeStack := evalControlTree(ctrl.children, scopeStack, props, pScopeExp, fence, components, pattrEnabled, templateDir, ifFullCondition)
+				suppressJSErrors = wasSuppressed
 
 				// Debug: Log if markup is empty when modifiers are present
 				if parentHasModifiers && strings.TrimSpace(ifMarkup) == "" {
@@ -409,7 +419,13 @@ func evalControlTree(controlTree []control, scopeStack []scopeStackItem, props m
 						currentCondition := strings.Join(negatedConditions, " && ") + " && " + child.elseIfCondition
 						fullCondition := buildFullCondition(currentCondition)
 
+						// Suppress expected JS errors in dead else-if branches during SSR.
+						wasSuppressed = suppressJSErrors
+						if !isBoolAndTrue(evalJS(fullCondition, fence)) {
+							suppressJSErrors = true
+						}
 						elseIfMarkup, newScopeStack := evalControlTree(child.children, scopeStack, props, pScopeExp, fence, components, pattrEnabled, templateDir, fullCondition)
+						suppressJSErrors = wasSuppressed
 						// Use same modifier handling as parent if
 						var elseIfMarkupWithAttrs string
 						var err error
