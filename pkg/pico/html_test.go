@@ -35,7 +35,7 @@ let myVar = "hello";
 }
 
 func TestAsteriskCheckedBinding(t *testing.T) {
-	// Test *checked creates p-model:checked attribute and SSR checked
+	// Test *checked creates p-model attribute (Pattr auto-detects type="checkbox")
 	markup := `---
 let isActive = true;
 ---
@@ -48,9 +48,9 @@ let isActive = true;
 
 	rendered, _, _ := RenderRoot(tmpPath, map[string]any{})
 
-	// Should have p-model:checked attribute
-	if !strings.Contains(rendered, `p-model:checked="isActive"`) {
-		t.Errorf("Expected p-model:checked attribute, got:\n%s", rendered)
+	// Should have plain p-model attribute (Pattr detects checkbox from type attr)
+	if !strings.Contains(rendered, `p-model="isActive"`) {
+		t.Errorf("Expected p-model attribute, got:\n%s", rendered)
 	}
 	// Should have SSR checked attribute (empty val for boolean attrs)
 	if !strings.Contains(rendered, `checked=""`) {
@@ -76,43 +76,13 @@ let isActive = false;
 
 	rendered, _, _ := RenderRoot(tmpPath, map[string]any{})
 
-	// Should have p-model:checked attribute
-	if !strings.Contains(rendered, `p-model:checked="isActive"`) {
-		t.Errorf("Expected p-model:checked attribute, got:\n%s", rendered)
+	// Should have plain p-model attribute
+	if !strings.Contains(rendered, `p-model="isActive"`) {
+		t.Errorf("Expected p-model attribute, got:\n%s", rendered)
 	}
 	// Should NOT have checked attribute when false
 	if strings.Contains(rendered, `checked=""`) {
 		t.Errorf("Should not have checked attribute for false value, got:\n%s", rendered)
-	}
-}
-
-func TestAsteriskIndeterminateBinding(t *testing.T) {
-	// Test *indeterminate creates p-model:indeterminate attribute
-	// No SSR HTML attribute for indeterminate (DOM property only)
-	markup := `---
-let isIndeterminate = true;
----
-<input type="checkbox" *indeterminate="{isIndeterminate}" />`
-
-	tmpPath := "/tmp/test_asterisk_indeterminate.pico"
-	if err := os.WriteFile(tmpPath, []byte(markup), 0644); err != nil {
-		t.Fatalf("Failed to write test file: %v", err)
-	}
-
-	rendered, _, _ := RenderRoot(tmpPath, map[string]any{})
-
-	// Should have p-model:indeterminate attribute
-	if !strings.Contains(rendered, `p-model:indeterminate="isIndeterminate"`) {
-		t.Errorf("Expected p-model:indeterminate attribute, got:\n%s", rendered)
-	}
-	// Should NOT have indeterminate HTML attribute (DOM-only property)
-	// Note: p-model:indeterminate is expected, but not a bare indeterminate= attr
-	if strings.Contains(rendered, ` indeterminate=`) {
-		t.Errorf("indeterminate should not be added as HTML attribute, got:\n%s", rendered)
-	}
-	// Should NOT have *indeterminate attribute in output
-	if strings.Contains(rendered, "*indeterminate") {
-		t.Errorf("*indeterminate attribute should be removed, got:\n%s", rendered)
 	}
 }
 

@@ -238,7 +238,6 @@ Use the asterisk `*` prefix on `<input>` attributes to enable 2-way binding for 
 ---
 let username = "alice";
 let isActive = true;
-let isIndeterminate = false;
 ---
 
 <!-- Text input -->
@@ -246,9 +245,6 @@ let isIndeterminate = false;
 
 <!-- Checkbox checked state -->
 <input type="checkbox" *checked="{isActive}" />
-
-<!-- Checkbox indeterminate state (DOM property) -->
-<input type="checkbox" *indeterminate="{isIndeterminate}" />
 ```
 
 **Generated Output:**
@@ -258,10 +254,7 @@ let isIndeterminate = false;
 <input p-model="username" value="alice" class="p-abc123" />
 
 <!-- Checkbox checked state -->
-<input type="checkbox" p-model:checked="isActive" checked="" class="p-abc123" />
-
-<!-- Checkbox indeterminate state -->
-<input type="checkbox" p-model:indeterminate="isIndeterminate" class="p-abc123" />
+<input type="checkbox" p-model="isActive" checked="" class="p-abc123" />
 ```
 
 **Supported Attributes:**
@@ -269,8 +262,7 @@ let isIndeterminate = false;
 | Attribute | Pattr Directive | SSR Behavior |
 |-----------|-----------------|--------------|
 | `*value` | `p-model` | Sets `value` attribute with evaluated expression |
-| `*checked` | `p-model:checked` | Adds `checked=""` when expression is `true` |
-| `*indeterminate` | `p-model:indeterminate` | No HTML attribute (DOM property only) |
+| `*checked` | `p-model` | Adds `checked=""` when expression is `true`. Pattr detects `type="checkbox"` to bind the checked property. |
 
 > **Note:** Plain `value="{expr}"` without the asterisk will still evaluate the expression for SSR, but will **not** generate a `p-model` directive. Use the `*` prefix explicitly when you want 2-way binding.
 

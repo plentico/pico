@@ -427,23 +427,14 @@ func traverse(node *html.Node, scopedElements []scopedElement, fence string, use
 					pClassNames := extractPClassNames(attr.Val)
 					classes = append(classes, pClassNames...)
 				}
-				// Handle *value, *checked, *indeterminate on input elements for 2-way binding
-				if (attr.Key == "*value" || attr.Key == "*checked" || attr.Key == "*indeterminate") && node.Data == "input" {
+				// Handle *value and *checked on input elements for 2-way binding
+				if (attr.Key == "*value" || attr.Key == "*checked") && node.Data == "input" {
 					expr := strings.TrimSpace(attr.Val)
 					if strings.HasPrefix(expr, "{") && strings.HasSuffix(expr, "}") {
 						varName := expr[1 : len(expr)-1]
 						if usePattr {
-							var pModelKey string
-							switch attr.Key {
-							case "*value":
-								pModelKey = "p-model"
-							case "*checked":
-								pModelKey = "p-model:checked"
-							case "*indeterminate":
-								pModelKey = "p-model:indeterminate"
-							}
 							node.Attr = append(node.Attr, html.Attribute{
-								Key: pModelKey,
+								Key: "p-model",
 								Val: varName,
 							})
 						}
@@ -462,7 +453,6 @@ func traverse(node *html.Node, scopedElements []scopedElement, fence string, use
 									Val: "",
 								})
 							}
-							// *indeterminate: no HTML attribute for SSR (DOM property only)
 						}
 					} else {
 						// No {expr}, just convert *attr to regular attr
@@ -593,23 +583,14 @@ func processLoopNode(node *html.Node, loopFence string, usePattr bool) {
 		attrsToRemove := []int{}
 
 		for i, attr := range node.Attr {
-			// Handle *value, *checked, *indeterminate on input elements for 2-way binding in loops
-			if (attr.Key == "*value" || attr.Key == "*checked" || attr.Key == "*indeterminate") && node.Data == "input" {
+			// Handle *value and *checked on input elements for 2-way binding in loops
+			if (attr.Key == "*value" || attr.Key == "*checked") && node.Data == "input" {
 				expr := strings.TrimSpace(attr.Val)
 				if strings.HasPrefix(expr, "{") && strings.HasSuffix(expr, "}") {
 					varName := expr[1 : len(expr)-1]
 					if usePattr {
-						var pModelKey string
-						switch attr.Key {
-						case "*value":
-							pModelKey = "p-model"
-						case "*checked":
-							pModelKey = "p-model:checked"
-						case "*indeterminate":
-							pModelKey = "p-model:indeterminate"
-						}
 						node.Attr = append(node.Attr, html.Attribute{
-							Key: pModelKey,
+							Key: "p-model",
 							Val: varName,
 						})
 					}
@@ -628,7 +609,6 @@ func processLoopNode(node *html.Node, loopFence string, usePattr bool) {
 								Val: "",
 							})
 						}
-						// *indeterminate: no HTML attribute for SSR (DOM property only)
 					}
 				} else {
 					// No {expr}, just convert *attr to regular attr
