@@ -382,7 +382,12 @@ func shouldKeepRuleset(pendingSelectors [][]css.Token, lastValues []css.Token, s
 	return checkSingleSelectorUsed(lastValues, scopedElements)
 }
 
-func scopeCSS(style string, scopedElements []scopedElement) string {
+// scopeCSS scopes style rules to the given elements and drops rulesets whose
+// selectors match nothing (treeshaking). Pass noTreeshake=true for styles that
+// target client-rendered markup (e.g. p-comp registry components), where the
+// SSR markup doesn't contain every shape the client may render.
+func scopeCSS(style string, scopedElements []scopedElement, noTreeshake ...bool) string {
+	treeshake := len(noTreeshake) == 0 || !noTreeshake[0]
 	var out strings.Builder
 
 	p := css.NewParser(parse.NewInputString(style), false)
@@ -425,7 +430,7 @@ func scopeCSS(style string, scopedElements []scopedElement) string {
 			// data is always "" for both; tokens are in p.Values()
 			lastValues := p.Values()
 
-			if !shouldKeepRuleset(pendingSelectors, lastValues, scopedElements) {
+			if treeshake && !shouldKeepRuleset(pendingSelectors, lastValues, scopedElements) {
 				skipCurrentRuleset = true
 				rulesetDepth = 1
 				pendingSelectors = nil

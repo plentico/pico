@@ -3,8 +3,8 @@ package pico
 import (
 	"fmt"
 	"log"
-	"path/filepath"
 	"regexp"
+	"slices"
 	"strings"
 
 	"golang.org/x/net/html"
@@ -546,63 +546,70 @@ func evalControlTree(controlTree []control, scopeStack []scopeStackItem, props m
 					if len(iterationItems) > 0 {
 						templateNewProps[ctrl.forVar] = iterationItems[0]
 					}
+					wasBuildingLoopTemplate := buildingLoopTemplate
+					buildingLoopTemplate = true
 					templateMarkup, _ := evalControlTree(ctrl.children, scopeStack, templateNewProps, pScopeExp, templateLoopFence, components, pattrEnabled, templateDir)
+					buildingLoopTemplate = wasBuildingLoopTemplate
 					templateMarkup = processLoopTemplate(templateMarkup, templateLoopFence, pattrEnabled)
 					markupBuilder.WriteString("<template p-for=\"" + html.EscapeString(pForExpr) + "\">")
 					markupBuilder.WriteString(templateMarkup)
 					markupBuilder.WriteString("</template>")
 				}
 
-				for idx, item := range iterationItems {
-					newProps := make(map[string]any)
-					for k, v := range props {
-						newProps[k] = v
-					}
+				// In registry renders the loop only contributes its client template;
+				// SSR items are omitted so no invocation's data is baked into the source.
+				if !registryRenderMode {
+					for idx, item := range iterationItems {
+						newProps := make(map[string]any)
+						for k, v := range props {
+							newProps[k] = v
+						}
 
-					var loopFence string
+						var loopFence string
 
-					if ctrl.forIsDestructuring {
-						// Handle destructuring
-						if strings.HasPrefix(ctrl.forVar, "[") {
-							// Array destructuring: [a, b]
-							itemArray, ok := item.([]any)
-							if ok {
-								for i, varName := range ctrl.forDestructureVars {
-									if i < len(itemArray) {
-										newProps[varName] = itemArray[i]
+						if ctrl.forIsDestructuring {
+							// Handle destructuring
+							if strings.HasPrefix(ctrl.forVar, "[") {
+								// Array destructuring: [a, b]
+								itemArray, ok := item.([]any)
+								if ok {
+									for i, varName := range ctrl.forDestructureVars {
+										if i < len(itemArray) {
+											newProps[varName] = itemArray[i]
+										}
 									}
 								}
-							}
-							// Build fence with destructured variables - just the destructuring statement
-							loopFence = fence + "\nlet " + ctrl.forVar + " = " + anyToString(item) + ";"
-						} else if strings.HasPrefix(ctrl.forVar, "{") {
-							// Object destructuring: {a, b}
-							// Used when iterating over arrays of objects: for (let {name, age} of people)
-							itemMap, ok := item.(map[string]any)
-							if ok {
-								for _, varName := range ctrl.forDestructureVars {
-									if val, exists := itemMap[varName]; exists {
-										newProps[varName] = val
+								// Build fence with destructured variables - just the destructuring statement
+								loopFence = fence + "\nlet " + ctrl.forVar + " = " + anyToString(item) + ";"
+							} else if strings.HasPrefix(ctrl.forVar, "{") {
+								// Object destructuring: {a, b}
+								// Used when iterating over arrays of objects: for (let {name, age} of people)
+								itemMap, ok := item.(map[string]any)
+								if ok {
+									for _, varName := range ctrl.forDestructureVars {
+										if val, exists := itemMap[varName]; exists {
+											newProps[varName] = val
+										}
 									}
 								}
+								// Build fence with destructured variables
+								loopFence = fence + "\nlet " + ctrl.forVar + " = " + anyToString(item) + ";"
 							}
-							// Build fence with destructured variables
+						} else {
+							// Normal (non-destructuring) case
+							newProps[ctrl.forVar] = item
 							loopFence = fence + "\nlet " + ctrl.forVar + " = " + anyToString(item) + ";"
 						}
-					} else {
-						// Normal (non-destructuring) case
-						newProps[ctrl.forVar] = item
-						loopFence = fence + "\nlet " + ctrl.forVar + " = " + anyToString(item) + ";"
-					}
 
-					markup, newScopeStack := evalControlTree(ctrl.children, scopeStack, newProps, pScopeExp, loopFence, components, pattrEnabled, templateDir)
-					if pattrEnabled {
-						markup = processLoopIteration(markup, loopFence, ctrl.forVar, item, currentScopeId, idx, pattrEnabled)
-					} else {
-						markup = evalAllBrackets(markup, loopFence)
+						markup, newScopeStack := evalControlTree(ctrl.children, scopeStack, newProps, pScopeExp, loopFence, components, pattrEnabled, templateDir)
+						if pattrEnabled {
+							markup = processLoopIteration(markup, loopFence, ctrl.forVar, item, currentScopeId, idx, pattrEnabled)
+						} else {
+							markup = evalAllBrackets(markup, loopFence)
+						}
+						markupBuilder.WriteString(markup)
+						scopeStack = newScopeStack
 					}
-					markupBuilder.WriteString(markup)
-					scopeStack = newScopeStack
 				}
 			}
 		} else if ctrl.isComp {
@@ -638,20 +645,64 @@ func evalControlTree(controlTree []control, scopeStack []scopeStackItem, props m
 			for prop_name, prop_value := range ctrl.dynamicCompProps.Sync {
 				newProps[prop_name] = evalJS(fmt.Sprintf(`%s`, prop_value), fence)
 			}
-			evaluatedCompPath := evalAllBrackets(ctrl.dynamicCompPath, fence)
-			// Resolve dynamic component path relative to current template's directory
-			if !filepath.IsAbs(evaluatedCompPath) {
-				evaluatedCompPath = filepath.Join(templateDir, evaluatedCompPath)
+			compName, resolvedCompPath, resolved := resolveDynamicCompPath(ctrl.dynamicCompPath, fence, templateDir)
+			if !pattrEnabled {
+				// Legacy SSR-only behavior: render inline (fails if unresolvable).
+				markup, script, style, newScopeStack, newPScopeExp, newFence := Render(resolvedCompPath, newProps, scopeStack, true)
+				markup, scopedElements := scopeHTML(markup, ctrl.dynamicCompProps, newPScopeExp, newFence, pattrEnabled)
+				newScopeStack = append(newScopeStack, scopeStackItem{
+					scopedElements: scopedElements,
+					style:          style,
+					script:         script,
+				})
+				scopeStack = newScopeStack
+				markupBuilder.WriteString(markup)
+			} else if buildingLoopTemplate || registryRenderMode {
+				// Inside a <template p-for> client template or a registry source the
+				// component stays an inert anchor: the client inflates matching
+				// content from the registry (per loop item, if applicable).
+				if resolved {
+					registerDynamicComp(compName, resolvedCompPath, ctrl.dynamicCompProps, newProps, false)
+				} else {
+					registerCompCandidates(ctrl.dynamicCompPath, templateDir, ctrl.dynamicCompProps, newProps)
+				}
+				markupBuilder.WriteString(compAnchorMarkup(ctrl.dynamicCompPath))
+			} else if resolved {
+				// Hydratable SSR: inert p-comp anchor followed by the component
+				// markup stamped with p-comp-node, so the client adopts it during
+				// hydration instead of re-inflating from the registry.
+				registerDynamicComp(compName, resolvedCompPath, ctrl.dynamicCompProps, newProps, true)
+				markup, script, style, newScopeStack, newPScopeExp, newFence := Render(resolvedCompPath, newProps, scopeStack, false)
+				// Seed scoping with the registry name so SSR markup and the
+				// p-comp-src registry source share deterministic scoped classes.
+				markup, scopedElements := scopeHTML(markup, ctrl.dynamicCompProps, newPScopeExp, newFence, pattrEnabled, compName)
+				// Style/script are emitted once by the registry render (with
+				// matching scoped classes) rather than per SSR instance; stash
+				// the SSR elements so CSS scoping also covers markup shapes
+				// only produced inline.
+				if entry, ok := compRegistry[compName]; ok {
+					entry.ssrElements = append(entry.ssrElements, scopedElements...)
+					if script != "" && !slices.Contains(entry.scripts, script) {
+						entry.scripts = append(entry.scripts, script)
+					}
+				} else {
+					newScopeStack = append(newScopeStack, scopeStackItem{
+						scopedElements: scopedElements,
+						style:          style,
+						script:         script,
+						noTreeshake:    true,
+					})
+				}
+				scopeStack = newScopeStack
+				markupBuilder.WriteString(compAnchorMarkup(ctrl.dynamicCompPath))
+				markupBuilder.WriteString(stampCompNode(markup, compName))
+			} else {
+				// Build-time unresolvable: emit only the anchor and register every
+				// candidate component the path expression could point at, so the
+				// client can resolve and render it at runtime.
+				registerCompCandidates(ctrl.dynamicCompPath, templateDir, ctrl.dynamicCompProps, newProps)
+				markupBuilder.WriteString(compAnchorMarkup(ctrl.dynamicCompPath))
 			}
-			markup, script, style, newScopeStack, newPScopeExp, newFence := Render(evaluatedCompPath, newProps, scopeStack, !pattrEnabled)
-			markup, scopedElements := scopeHTML(markup, ctrl.dynamicCompProps, newPScopeExp, newFence, pattrEnabled)
-			newScopeStack = append(newScopeStack, scopeStackItem{
-				scopedElements: scopedElements,
-				style:          style,
-				script:         script,
-			})
-			scopeStack = newScopeStack
-			markupBuilder.WriteString(markup)
 		}
 	}
 

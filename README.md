@@ -343,7 +343,35 @@ let compPath = "./mycomp.html";
 
 <="./mycomp.html" {prop} />
 <='{compPath}' />
+<="./components/{comp.name}.html" fields={comp.fields} />
 ```
+
+When Pattr is enabled (the default), dynamic components are SSR'd in a
+hydratable form:
+
+- An inert `<template p-comp>` anchor is emitted where the component was
+  invoked. Its attribute is the path expression as a JS template literal
+  (e.g. `` `./components/${comp.name}.html` ``), evaluated client-side.
+- If the path resolves at build time, the component markup is rendered inline
+  right after the anchor, stamped with `p-comp-node="<path>"` on its top-level
+  elements so Pattr adopts it during hydration instead of re-rendering.
+- Every component the page may render client-side is also emitted once as a
+  `<template p-comp-src="<path>">` registry entry at the end of `<body>`. The
+  registry source keeps its bindings (`p-text`, `p-for` templates, prop
+  expressions) unevaluated so the client can re-render with any props. If the
+  path can't be resolved at build time, every component file matching the
+  path's static prefix/suffix is registered as a candidate, and CSS
+  treeshaking is disabled for the page so client-rendered markup keeps its
+  styles.
+- A dynamic component's styles and scripts are emitted exactly once (via the
+  registry entry), never treeshaken. Scoped classes are derived
+  deterministically from the component's registry name, so the inline SSR
+  copy, the registry source, and anything the client re-renders at runtime all
+  share the same classes and are styled by the same rules.
+
+With `--no-pattr`, dynamic components keep the legacy behavior: the path must
+resolve at build time and the component is rendered inline with no anchors or
+registry.
 
 ## Dependencies
 

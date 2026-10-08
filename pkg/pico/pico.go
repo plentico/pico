@@ -29,6 +29,7 @@ type scopeStackItem struct {
 	scopedElements []scopedElement
 	style          string
 	script         string
+	noTreeshake    bool // keep all CSS rulesets (e.g. client-rendered comp markup)
 }
 
 // scopedElement represents an HTML element with scoping information for CSS isolation.
@@ -77,6 +78,7 @@ func RenderRoot(path string, props map[string]any, noPattr ...bool) (string, str
 	if len(noPattr) > 0 && noPattr[0] {
 		usePattr = false
 	}
+	resetCompRegistry()
 	markup, script, style, scopeStack, pScopeExp, fence := Render(path, props, []scopeStackItem{}, !usePattr)
 	// Create scoped classes and add to html
 	// RenderRoot has root-level props that need to be included in p-root-data
@@ -91,6 +93,16 @@ func RenderRoot(path string, props map[string]any, noPattr ...bool) (string, str
 		style:          style,
 		script:         script,
 	})
+	// Emit the client-side component registry (p-comp-src templates) for
+	// dynamic components before scoping the CSS, so registry-only components
+	// contribute their styles and scripts.
+	if usePattr {
+		var registryMarkup string
+		registryMarkup, scopeStack = renderCompRegistry(scopeStack, usePattr)
+		if registryMarkup != "" {
+			markup = injectCompRegistry(markup, registryMarkup)
+		}
+	}
 	// Add scoped classes to css
 	style, script = evalScopeStack(scopeStack)
 
@@ -137,7 +149,7 @@ func evalScopeStack(scopeStack []scopeStackItem) (string, string) {
 		// Process style with CSS parser
 		if stackItem.style != "" {
 			// Add scoped classes to CSS
-			scopedStyle := scopeCSS(stackItem.style, stackItem.scopedElements)
+			scopedStyle := scopeCSS(stackItem.style, stackItem.scopedElements, stackItem.noTreeshake || pageNoTreeshake)
 			styleBuilder.WriteString(scopedStyle)
 		}
 	}

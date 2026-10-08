@@ -157,7 +157,11 @@ func extractPClassNames(pClassVal string) []string {
 	return classes
 }
 
-func scopeHTML(markup string, props CompProps, pScopeExp string, fence string, usePattr bool) (string, []scopedElement) {
+// scopeSeed, when provided, makes scoped class generation deterministic
+// (derived from scopeSeed[0] + tag) instead of random. Dynamic components use
+// their registry name as the seed so inline SSR markup and the p-comp-src
+// client registry source share scoped classes.
+func scopeHTML(markup string, props CompProps, pScopeExp string, fence string, usePattr bool, scopeSeed ...string) (string, []scopedElement) {
 	scopedElements := []scopedElement{}
 	var markupBuilder strings.Builder
 
@@ -232,7 +236,7 @@ func scopeHTML(markup string, props CompProps, pScopeExp string, fence string, u
 			}
 		}
 
-		node, scopedElements = traverse(node, scopedElements, fence, usePattr)
+		node, scopedElements = traverse(node, scopedElements, fence, usePattr, scopeSeed...)
 
 		if err := html.Render(&markupBuilder, node); err != nil {
 			log.Fatal(err)
@@ -242,7 +246,7 @@ func scopeHTML(markup string, props CompProps, pScopeExp string, fence string, u
 	return markupBuilder.String(), scopedElements
 }
 
-func traverse(node *html.Node, scopedElements []scopedElement, fence string, usePattr bool) (*html.Node, []scopedElement) {
+func traverse(node *html.Node, scopedElements []scopedElement, fence string, usePattr bool, scopeSeed ...string) (*html.Node, []scopedElement) {
 	var traverseFunc func(*html.Node)
 	traverseFunc = func(node *html.Node) {
 		if node.Type == html.TextNode {
@@ -389,11 +393,18 @@ func traverse(node *html.Node, scopedElements []scopedElement, fence string, use
 			scopedClass := getScopedClass(tag, "tag", scopedElements)
 
 			if scopedClass == "" {
-				randomStr, err := generateRandom()
-				if err != nil {
-					log.Fatal(err)
+				if len(scopeSeed) > 0 && scopeSeed[0] != "" {
+					// Deterministic class: repeated renders of the same seeded
+					// component (inline SSR + p-comp-src registry source) share
+					// scoped classes so one set of CSS rules styles both.
+					scopedClass = scopedClassForSeed(scopeSeed[0], tag)
+				} else {
+					randomStr, err := generateRandom()
+					if err != nil {
+						log.Fatal(err)
+					}
+					scopedClass = "p-" + randomStr
 				}
-				scopedClass = "p-" + randomStr
 			}
 
 			// Track attributes to remove
@@ -466,7 +477,7 @@ func traverse(node *html.Node, scopedElements []scopedElement, fence string, use
 					continue
 				}
 				if strings.Contains(attr.Val, "{") && strings.Contains(attr.Val, "}") {
-					if attr.Key != "p-text" && attr.Key != "p-scope" && attr.Key != "p-class" && !strings.HasPrefix(attr.Key, "p-attr") && !strings.HasPrefix(attr.Key, "p-on") && attr.Key != "p-model" {
+					if attr.Key != "p-text" && attr.Key != "p-scope" && attr.Key != "p-class" && !strings.HasPrefix(attr.Key, "p-attr") && !strings.HasPrefix(attr.Key, "p-on") && attr.Key != "p-model" && attr.Key != "p-comp" {
 						if strings.HasPrefix(attr.Key, "on") {
 							eventName := attr.Key[2:]
 							expr := processEventHandler(attr.Val)
@@ -622,7 +633,7 @@ func processLoopNode(node *html.Node, loopFence string, usePattr bool) {
 				continue
 			}
 			if strings.Contains(attr.Val, "{") && strings.Contains(attr.Val, "}") {
-				if attr.Key != "p-text" && attr.Key != "p-scope" && !strings.HasPrefix(attr.Key, "p-attr") && !strings.HasPrefix(attr.Key, "p-on") && attr.Key != "p-model" {
+				if attr.Key != "p-text" && attr.Key != "p-scope" && !strings.HasPrefix(attr.Key, "p-attr") && !strings.HasPrefix(attr.Key, "p-on") && attr.Key != "p-model" && attr.Key != "p-comp" {
 					if strings.HasPrefix(attr.Key, "on") {
 						eventName := attr.Key[2:]
 						expr := processEventHandler(attr.Val)

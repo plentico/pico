@@ -3,6 +3,7 @@ package pico
 import (
 	"crypto/rand"
 	"fmt"
+	"hash/fnv"
 	"log"
 	"math/big"
 	"os"
@@ -37,6 +38,24 @@ func generateRandom() (string, error) {
 		bytes[i] = chars[num.Int64()]
 	}
 	return string(bytes), nil
+}
+
+// scopedClassForSeed derives a deterministic scoped class from a seed (e.g. a
+// dynamic component's registry name) and tag name. Dynamic components render
+// once for inline SSR and again into the p-comp-src client registry; both
+// copies must carry the same scoped classes so a single set of CSS rules
+// styles them no matter which copy is in the DOM.
+func scopedClassForSeed(seed string, tag string) string {
+	const chars = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789"
+	h := fnv.New64a()
+	h.Write([]byte(seed + ":" + tag))
+	num := h.Sum64()
+	class := make([]byte, 6)
+	for i := range class {
+		class[i] = chars[num%uint64(len(chars))]
+		num /= uint64(len(chars))
+	}
+	return "p-" + string(class)
 }
 
 func templateParts(path string) (string, string, string, string) {
