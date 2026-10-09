@@ -2,6 +2,7 @@
 package main
 
 import (
+	"bytes"
 	"flag"
 	"fmt"
 	"io/fs"
@@ -197,6 +198,9 @@ Render Options:
   --no-pattr          Disable Pattr hydration attributes
 
   Note: Flags can be placed before OR after positional arguments.
+  Note: When Pattr is enabled, pattr.js is copied into the output from a
+        sibling pattr checkout (../pattr/pattr.js) if one exists. A pattr.js
+        in the static dir takes precedence over the sibling checkout.
 
 Serve Options:
   --dir <dir>         Directory to serve (skips auto-render)
@@ -274,6 +278,13 @@ func runRender(templatePath, propsFile, propsJSON, outputDir, staticDir string, 
 	fmt.Println("  - script.js")
 	fmt.Println("  - style.css")
 
+	// Copy pattr.js from a local checkout so rendered pages work out of the
+	// box. Done before the static copy below so a pattr.js in the static dir
+	// takes precedence (e.g. to pin a specific build for testing).
+	if !noPattr {
+		copyLocalPattr(templatePath, outputDir)
+	}
+
 	// Copy static files
 	if staticDir == "" {
 		// Auto-detect: look for static folder relative to template's parent directory
@@ -329,6 +340,47 @@ func copyDir(src, dst string) error {
 		}
 		return os.WriteFile(dstPath, srcFile, info.Mode())
 	})
+}
+
+// copyLocalPattr copies pattr.js from a local pattr checkout into the output
+// directory, so rendered pages that reference /pattr.js work out of the box
+// during local development. Pico does not bundle pattr; it looks for a
+// sibling checkout relative to the working directory and relative to the
+// template's repo (templates typically live at <repo>/site/views/<name>).
+// The copy happens before static files are copied, so a pattr.js in the
+// static dir takes precedence over the local checkout. If no checkout is
+// found and the output has no pattr.js yet, a hint is printed since the page
+// can load pattr from a CDN (e.g. unpkg) instead.
+func copyLocalPattr(templatePath, outputDir string) {
+	repoRoot := filepath.Dir(filepath.Dir(filepath.Dir(templatePath)))
+	candidates := []string{
+		// Sibling of the working directory
+		filepath.Join("..", "pattr", "pattr.js"),
+		// Sibling of the repo containing the template
+		filepath.Join(filepath.Dir(repoRoot), "pattr", "pattr.js"),
+	}
+
+	for _, src := range candidates {
+		srcBytes, err := os.ReadFile(src)
+		if err != nil {
+			continue
+		}
+		dest := filepath.Join(outputDir, "pattr.js")
+		if destBytes, err := os.ReadFile(dest); err == nil && bytes.Equal(destBytes, srcBytes) {
+			fmt.Printf("  - pattr.js from %s (unchanged)\n", src)
+			return
+		}
+		if err := os.WriteFile(dest, srcBytes, 0o644); err != nil {
+			fmt.Printf("Warning: could not copy pattr.js: %v\n", err)
+			return
+		}
+		fmt.Printf("  - pattr.js from %s\n", src)
+		return
+	}
+
+	if _, err := os.Stat(filepath.Join(outputDir, "pattr.js")); err != nil {
+		fmt.Println("  - no local pattr checkout found; load pattr from a CDN (e.g. https://unpkg.com/@plentico/pattr) or add pattr.js to your static dir")
+	}
 }
 
 func runTests(testDir string) {
