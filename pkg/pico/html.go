@@ -216,7 +216,18 @@ func scopeHTML(markup string, props CompProps, pScopeExp string, fence string, u
 				syncScope := flattenCompArgs(props.Sync)
 
 				if regularScope != "" {
-					pScopeExp = regularScope + pScopeExp
+					// Avoid duplicating assignments already carried in pScopeExp.
+					var parts []string
+					for _, assignment := range strings.Split(regularScope, ";") {
+						assignment = strings.TrimSpace(assignment)
+						if assignment == "" {
+							continue
+						}
+						if !strings.Contains(pScopeExp, assignment+";") {
+							parts = append(parts, assignment+";")
+						}
+					}
+					pScopeExp = strings.Join(parts, " ") + pScopeExp
 				}
 
 				// Add p-scope attribute
