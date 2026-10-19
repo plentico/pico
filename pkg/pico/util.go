@@ -318,6 +318,8 @@ func formatObject(value any) string {
 
 func formatElement(value any) string {
 	switch v := value.(type) {
+	case nil:
+		return "null"
 	case string:
 		return strconv.Quote(v)
 	case int:
