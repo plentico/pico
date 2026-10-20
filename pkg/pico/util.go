@@ -2,6 +2,7 @@ package pico
 
 import (
 	"crypto/rand"
+	"encoding/json"
 	"fmt"
 	"hash/fnv"
 	"log"
@@ -104,10 +105,23 @@ func templateParts(path string) (string, string, string, string) {
 func setProps(fence string, props map[string]any) (string, string) {
 	pScopeExp := fence
 
+	// The names and values are content. A name is matched literally, and each
+	// value goes in as a placeholder that is replaced only after the rewrites
+	// below, in one pass, so nothing in a value is read as frontmatter: not
+	// "$1" (a reference to the match), "prop x;" (another prop) or
+	// "let"/"const" (a declaration needing a semicolon).
+	var values []string
 	for name, value := range props {
-		reProp := regexp.MustCompile(fmt.Sprintf(`prop (%s)(\s?=\s?(.*?))?;`, name))
-		pScopeExp = reProp.ReplaceAllString(pScopeExp, "")
-		fence = reProp.ReplaceAllString(fence, "let "+name+" = "+anyToString(value)+";")
+		// A prop's name is an identifier; any other key can't be a prop, and
+		// matched literally it could spell out a stretch of the template.
+		if !rePropName.MatchString(name) {
+			continue
+		}
+		reProp := regexp.MustCompile(fmt.Sprintf(`prop (%s)(\s?=\s?(.*?))?;`, regexp.QuoteMeta(name)))
+		pScopeExp = reProp.ReplaceAllLiteralString(pScopeExp, "")
+		placeholder := "\uE002" + strconv.Itoa(len(values)) + "\uE003"
+		values = append(values, anyToString(value))
+		fence = reProp.ReplaceAllLiteralString(fence, "let "+name+" = "+placeholder+";")
 	}
 
 	rePropDefaults := regexp.MustCompile(`prop\s([a-zA-Z_$]*)(\s?=\s?(.*?))?;`)
@@ -140,9 +154,23 @@ func setProps(fence string, props map[string]any) (string, string) {
 	reLocalVars := regexp.MustCompile(`(?:let|const|var)\s+`)
 	pScopeExp = reLocalVars.ReplaceAllString(pScopeExp, "")
 
+	fence = rePropValue.ReplaceAllStringFunc(fence, func(m string) string {
+		i, err := strconv.Atoi(m[len("\uE002") : len(m)-len("\uE003")])
+		if err != nil || i >= len(values) {
+			return m // (not one of ours)
+		}
+		return values[i]
+	})
+
 	pScopeExp = makeAttrStr(pScopeExp)
 	return fence, pScopeExp
 }
+
+// rePropValue matches the placeholders setProps puts in for props' values.
+var rePropValue = regexp.MustCompile(`\x{E002}\d+\x{E003}`)
+
+// rePropName matches a JavaScript identifier.
+var rePropName = regexp.MustCompile(`^[\p{L}\p{Nl}_$][\p{L}\p{Nl}\p{Mn}\p{Mc}\p{Nd}\p{Pc}_$]*$`)
 
 func makeAttrStr(str string) string {
 	reComments := regexp.MustCompile(`//.*`)
@@ -345,6 +373,12 @@ func formatElement(value any) string {
 }
 
 func anyToString(value any) string {
+	// Props and loop items are written into generated JS source. JSON is valid JS
+	// literal syntax: it quotes object keys and handles null, which the hand-rolled
+	// formatter below rendered as `unknown type` and bare keys (a syntax error).
+	if b, err := json.Marshal(value); err == nil {
+		return string(b)
+	}
 	val := reflect.ValueOf(value)
 	switch val.Kind() {
 	case reflect.Array, reflect.Slice:

@@ -164,8 +164,9 @@ let comps = [
 		t.Errorf("Expected keyed SSR iterations, got: %s", markup)
 	}
 	// The in-loop anchors carry the item's p-for-key too (grouping continuity).
-	keyedAnchor := `<template p-comp="` + "`./components/${comp.name}.pico`" + `" p-scope="comp = {fields: {items: [&#39;a&#39;, &#39;b&#39;], title: &#39;Welcome&#39;}, name: &#39;hero&#39;};" p-for-key="s0:0"`
-	if !strings.Contains(markup, keyedAnchor) {
+	// (Matched without the p-scope value, whose serialisation isn't what's tested.)
+	keyedAnchor := regexp.MustCompile(`<template p-comp="` + regexp.QuoteMeta("`./components/${comp.name}.pico`") + `" p-scope="comp = [^"]*hero[^"]*" p-for-key="s0:0"`)
+	if !keyedAnchor.MatchString(markup) {
 		t.Errorf("Expected keyed in-loop anchor %s, got: %s", keyedAnchor, markup)
 	}
 
