@@ -291,6 +291,8 @@ func formatArray(value any) string {
 	return "[" + strings.Join(elements, ", ") + "]"
 }
 
+var reJSIdentifier = regexp.MustCompile(`^[A-Za-z_$][A-Za-z0-9_$]*$`)
+
 func formatObject(value any) string {
 	val := reflect.ValueOf(value)
 	if val.Kind() != reflect.Map {
@@ -310,7 +312,11 @@ func formatObject(value any) string {
 	var pairs []string
 	for _, key := range keyInterfaces {
 		value := val.MapIndex(reflect.ValueOf(key))
-		pairs = append(pairs, fmt.Sprintf("%v: %v", key, anyToString(value.Interface())))
+		keyStr := fmt.Sprintf("%v", key)
+		if !reJSIdentifier.MatchString(keyStr) {
+			keyStr = strconv.Quote(keyStr)
+		}
+		pairs = append(pairs, fmt.Sprintf("%s: %v", keyStr, anyToString(value.Interface())))
 	}
 
 	return "{" + strings.Join(pairs, ", ") + "}"
