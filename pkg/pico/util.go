@@ -173,6 +173,9 @@ func evalAllBrackets(str string, fence string) string {
 }
 
 func evalJS(jsCode string, fence string) any {
+	if v, ok := evalParsed(jsCode, fence); ok {
+		return v
+	}
 	vm := goja.New()
 	goja_value, err := vm.RunString(fence + jsCode)
 	if err != nil {

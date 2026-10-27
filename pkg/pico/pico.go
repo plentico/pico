@@ -79,6 +79,7 @@ func RenderRoot(path string, props map[string]any, noPattr ...bool) (string, str
 		usePattr = false
 	}
 	resetCompRegistry()
+	resetEvalCache()
 	markup, script, style, scopeStack, pScopeExp, fence := Render(path, props, []scopeStackItem{}, !usePattr)
 	// Create scoped classes and add to html
 	// RenderRoot has root-level props that need to be included in p-root-data
