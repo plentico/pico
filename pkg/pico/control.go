@@ -535,9 +535,9 @@ func evalControlTree(controlTree []control, scopeStack []scopeStackItem, props m
 					pForExpr := ctrl.forVar + " " + ctrl.forKeyword + " " + ctrl.forCollection
 					var templateLoopFence string
 					if len(iterationItems) > 0 {
-						templateLoopFence = extendFence(fence, "\nlet "+ctrl.forVar+" = "+anyToString(iterationItems[0])+";")
+						templateLoopFence = extendFence(fence, ctrl.forVar, anyToString(iterationItems[0]))
 					} else {
-						templateLoopFence = extendFence(fence, "\nlet "+ctrl.forVar+" = null;")
+						templateLoopFence = extendFence(fence, ctrl.forVar, "null")
 					}
 					templateNewProps := make(map[string]any)
 					for k, v := range props {
@@ -580,7 +580,7 @@ func evalControlTree(controlTree []control, scopeStack []scopeStackItem, props m
 									}
 								}
 								// Build fence with destructured variables - just the destructuring statement
-								loopFence = extendFence(fence, "\nlet "+ctrl.forVar+" = "+anyToString(item)+";")
+								loopFence = extendFence(fence, ctrl.forVar, anyToString(item))
 							} else if strings.HasPrefix(ctrl.forVar, "{") {
 								// Object destructuring: {a, b}
 								// Used when iterating over arrays of objects: for (let {name, age} of people)
@@ -593,12 +593,12 @@ func evalControlTree(controlTree []control, scopeStack []scopeStackItem, props m
 									}
 								}
 								// Build fence with destructured variables
-								loopFence = extendFence(fence, "\nlet "+ctrl.forVar+" = "+anyToString(item)+";")
+								loopFence = extendFence(fence, ctrl.forVar, anyToString(item))
 							}
 						} else {
 							// Normal (non-destructuring) case
 							newProps[ctrl.forVar] = item
-							loopFence = extendFence(fence, "\nlet "+ctrl.forVar+" = "+anyToString(item)+";")
+							loopFence = extendFence(fence, ctrl.forVar, anyToString(item))
 						}
 
 						markup, newScopeStack := evalControlTree(ctrl.children, scopeStack, newProps, pScopeExp, loopFence, components, pattrEnabled, templateDir)

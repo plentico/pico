@@ -98,21 +98,26 @@ func comparable(markup string) string {
 	})
 }
 
-// A loop item's frontmatter is parsed as its own line, not with the whole
-// frontmatter again.
+// A loop item is parsed on its own, never with its whole frontmatter: one
+// program per item (its declaration, or with a shared VM its value), so 50
+// more menu items are 50 more programs.
 func TestEvalCacheParsesLoopItemsAlone(t *testing.T) {
-	RenderRoot(writeEvalCacheSite(t), evalCacheProps(50, 4, 2))
-	items := 0
-	for src := range evalPrograms {
-		if strings.HasPrefix(src, "\nlet item = ") {
-			items++
+	tpl := writeEvalCacheSite(t)
+	defer func() { useSharedVM = true }()
+	for _, shared := range []bool{true, false} {
+		useSharedVM = shared
+		programs := func(menu int) int {
+			RenderRoot(tpl, evalCacheProps(menu, 4, 2))
+			for src := range evalPrograms {
+				if strings.Contains(src, "let menu = ") && strings.Contains(src, "let item = ") {
+					t.Fatalf("shared=%v: a loop item was parsed with its frontmatter:\n%.300s", shared, src)
+				}
+			}
+			return len(evalPrograms)
 		}
-		if strings.Contains(src, "let menu = ") && strings.Contains(src, "let item = ") {
-			t.Fatalf("a loop item was parsed with its frontmatter:\n%.300s", src)
+		if got := programs(100) - programs(50); got != 50 {
+			t.Errorf("shared=%v: 50 more items gave %d more programs, want 50", shared, got)
 		}
-	}
-	if items != 50 {
-		t.Errorf("want each of the 50 menu items parsed on its own, got %d", items)
 	}
 }
 
