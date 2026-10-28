@@ -187,17 +187,76 @@ func makeAttrStr(str string) string {
 }
 
 func evalAllBrackets(str string, fence string) string {
+	from := 0
 	for {
-		startPos := strings.IndexRune(str, '{')
-		endPos := strings.IndexRune(str, '}')
-		if startPos == -1 || endPos == -1 {
+		open := strings.IndexRune(str[from:], '{')
+		if open == -1 {
 			break
+		}
+		startPos := from + open
+		endPos := matchingBrace(str, startPos)
+		if endPos == -1 {
+			// No closing brace: the "{" is text.
+			from = startPos + 1
+			continue
 		}
 		jsCode := str[startPos+1 : endPos]
 		evaluated := fmt.Sprintf("%v", evalJS(jsCode, fence))
 		str = str[0:startPos] + evaluated + str[endPos+1:]
+		from = startPos
 	}
 	return str
+}
+
+// templateLiteral turns text with {expressions} into a JavaScript template
+// literal for Pattr: each expression becomes ${...}, keeping any braces
+// inside it, and a "{" without a closing "}" stays as text. Double quotes
+// become single quotes, as the literal goes in an attribute.
+func templateLiteral(str string) string {
+	var b strings.Builder
+	from := 0
+	for {
+		open := strings.IndexRune(str[from:], '{')
+		if open == -1 {
+			b.WriteString(str[from:])
+			break
+		}
+		startPos := from + open
+		endPos := matchingBrace(str, startPos)
+		if endPos == -1 {
+			b.WriteString(str[from : startPos+1])
+			from = startPos + 1
+			continue
+		}
+		b.WriteString(str[from:startPos])
+		b.WriteString("${" + str[startPos+1:endPos] + "}")
+		from = endPos + 1
+	}
+	return "`" + strings.ReplaceAll(b.String(), "\"", "'") + "`"
+}
+
+// matchingBrace returns the index of the "}" that closes the "{" at open,
+// counting nested braces and skipping quoted strings, or -1 if there's none.
+func matchingBrace(str string, open int) int {
+	depth := 0
+	for i := open; i < len(str); i++ {
+		switch c := str[i]; c {
+		case '{':
+			depth++
+		case '}':
+			depth--
+			if depth == 0 {
+				return i
+			}
+		case '\'', '"', '`':
+			for i++; i < len(str) && str[i] != c; i++ {
+				if str[i] == '\\' {
+					i++
+				}
+			}
+		}
+	}
+	return -1
 }
 
 func evalJS(jsCode string, fence string) any {
