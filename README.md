@@ -87,6 +87,69 @@ markup, script, style, err := pico.RenderRootFromJSON("template.html", "props.js
 markup, script, style, err := pico.RenderRootFromJSONString("template.html", `{"name": "World"}`)
 ```
 
+### External root props
+
+Use `pico.NewExternalProp(value, source)` for a root prop that is needed during server-side rendering (SSR) but is too large or repetitive to embed in every generated page. Pico evaluates `value` normally while rendering, then marks the prop so Pattr fetches it from `source` before hydrating.
+
+For example, many pages can share one content collection without each page containing its own copy:
+
+```go
+import (
+	"encoding/json"
+	"log"
+	"os"
+
+	"github.com/plentico/pico/pkg/pico"
+)
+
+func renderPage(currentPage map[string]any, allContent []any) {
+	shared := pico.NewExternalProp(allContent, "/core/allContent.json")
+	props := map[string]any{
+		"content":    currentPage,
+		"allContent": shared,
+	}
+
+	markup, _, _ := pico.RenderRoot("layouts/content/pages.html", props)
+
+	// Write the resource once, not once per page. Pattr expects the JSON object
+	// { "allContent": [...] }, rather than a bare array.
+	data, err := json.Marshal(map[string]any{"allContent": allContent})
+	if err != nil {
+		log.Fatal(err)
+	}
+	if err := os.WriteFile("public/core/allContent.json", data, 0644); err != nil {
+		log.Fatal(err)
+	}
+
+	// Write markup and the site's other resources as usual.
+	_ = markup
+}
+```
+
+The template declares and uses the prop exactly as it would an ordinary inline prop:
+
+```html
+---
+prop content, allContent;
+---
+<h1>{content.fields.title}</h1>
+<p>{allContent.length} content entries</p>
+```
+
+Pico still uses the supplied value to produce complete SSR HTML. The root data retains ordinary props but identifies the external one by its key:
+
+```html
+<script
+  id="p-root-data"
+  type="application/json"
+  p-external-props='{"allContent":"/core/allContent.json"}'
+>{"content":{"fields":{"title":"About"}}}</script>
+```
+
+On the browser, Pattr requests the resource once per page load and merges its `allContent` member into the root scope before hydration. Each source should return a JSON object containing the corresponding prop key. External props are supported only in the props passed to `RenderRoot`; they do not apply to nested component props.
+
+`NewExternalProp` returns an `ExternalProp` with `Value` and `Source` fields. It also caches the JSON/JavaScript literal used for SSR, avoiding repeated marshaling when the same external prop is reused across many renders. Values must be JSON-serializable. Prefer the constructor over creating `ExternalProp` directly so this cached representation is initialized consistently.
+
 ## Project Structure
 
 ```

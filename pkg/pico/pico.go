@@ -110,6 +110,16 @@ func RenderRoot(path string, props map[string]any, noPattr ...bool) (string, str
 	return markup, script, style
 }
 
+// Eval evaluates an expression in a template's frontmatter scope without
+// rendering its markup. It uses the same prop and import handling as Render.
+func Eval(path string, props map[string]any, expression string) any {
+	currentTemplatePath = path
+	_, fence, _, _ := templateParts(path)
+	fence, _ = getComponents(path, fence)
+	fence, _ = setProps(fence, props)
+	return evalJS(expression, fence)
+}
+
 // RenderRootFromJSON renders a template using props loaded from a JSON file.
 func RenderRootFromJSON(templatePath string, propsPath string, noPattr ...bool) (string, string, string, error) {
 	data, err := os.ReadFile(propsPath)

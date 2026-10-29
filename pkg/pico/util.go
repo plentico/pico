@@ -390,6 +390,9 @@ func anyToString(value any) string {
 	// Props and loop items are written into generated JS source. JSON is valid JS
 	// literal syntax: it quotes object keys and handles null, which the hand-rolled
 	// formatter below rendered as `unknown type` and bare keys (a syntax error).
+	if external, ok := value.(ExternalProp); ok {
+		return external.serialized
+	}
 	if b, err := json.Marshal(value); err == nil {
 		return string(b)
 	}

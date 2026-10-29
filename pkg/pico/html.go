@@ -172,7 +172,12 @@ func scopeHTML(markup string, props CompProps, pScopeExp string, fence string, u
 
 	// Combine regular and sync props for root data JSON (used in CMS forms, etc.)
 	allProps := make(map[string]any)
+	externalProps := make(map[string]string)
 	for k, v := range props.Regular {
+		if external, ok := v.(ExternalProp); ok {
+			externalProps[k] = external.Source
+			continue
+		}
 		allProps[k] = v
 	}
 	for k, v := range props.Sync {
@@ -183,7 +188,7 @@ func scopeHTML(markup string, props CompProps, pScopeExp string, fence string, u
 		if node.Type == html.ElementNode && node.Data == "html" {
 			for c := node.FirstChild; c != nil; c = c.NextSibling {
 				if c.Type == html.ElementNode && c.Data == "head" {
-					if len(allProps) > 0 {
+					if len(allProps) > 0 || len(externalProps) > 0 {
 						rootData, _ := json.Marshal(allProps)
 						rootDataScript := &html.Node{
 							Type: html.ElementNode,
@@ -192,6 +197,10 @@ func scopeHTML(markup string, props CompProps, pScopeExp string, fence string, u
 								{Key: "id", Val: "p-root-data"},
 								{Key: "type", Val: "application/json"},
 							},
+						}
+						if len(externalProps) > 0 {
+							sources, _ := json.Marshal(externalProps)
+							rootDataScript.Attr = append(rootDataScript.Attr, html.Attribute{Key: "p-external-props", Val: string(sources)})
 						}
 						rootDataScript.AppendChild(&html.Node{
 							Type: html.TextNode,
