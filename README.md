@@ -119,7 +119,8 @@ import Child from "./child.html";
 import Header from "./header.html";
 
 prop name;           // Required prop
-prop age = 25;       // Prop with default value
+prop height, age;    // Declare multiple props
+prop count = 0;      // Prop with default value
 
 let greeting = "Hello " + name;  // Local variable
 ---

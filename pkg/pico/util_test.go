@@ -5,6 +5,20 @@ import (
 	"testing"
 )
 
+func TestSetPropsWithMultipleDeclarations(t *testing.T) {
+	fence, pScopeExp := setProps("prop name, age;", map[string]any{"name": "Ada"})
+
+	if !strings.Contains(fence, `let name = "Ada";`) || !strings.Contains(fence, "let age;") {
+		t.Errorf("expected both props in the frontmatter, got: %s", fence)
+	}
+	if strings.Contains(fence, "prop ") {
+		t.Errorf("expected all prop declarations to be rewritten, got: %s", fence)
+	}
+	if strings.Contains(pScopeExp, "name") || !strings.Contains(pScopeExp, "age;") {
+		t.Errorf("expected only the unsupplied prop in p-scope, got: %s", pScopeExp)
+	}
+}
+
 func TestSetPropsWithFrontmatter(t *testing.T) {
 	// Test frontmatter from the user's example
 	fence := `prop name;

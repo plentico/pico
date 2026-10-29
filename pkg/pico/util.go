@@ -102,7 +102,21 @@ func templateParts(path string) (string, string, string, string) {
 	return markup, fence, script, style
 }
 
+// rePropList matches a declaration of two or more props without defaults.
+var rePropList = regexp.MustCompile(`\bprop\s+([a-zA-Z_$][a-zA-Z0-9_$]*(?:\s*,\s*[a-zA-Z_$][a-zA-Z0-9_$]*)+)\s*;`)
+
+func expandPropLists(fence string) string {
+	return rePropList.ReplaceAllStringFunc(fence, func(declaration string) string {
+		names := strings.Split(rePropList.FindStringSubmatch(declaration)[1], ",")
+		for i := range names {
+			names[i] = strings.TrimSpace(names[i])
+		}
+		return "prop " + strings.Join(names, "; prop ") + ";"
+	})
+}
+
 func setProps(fence string, props map[string]any) (string, string) {
+	fence = expandPropLists(fence)
 	pScopeExp := fence
 
 	// The names and values are content. A name is matched literally, and each
