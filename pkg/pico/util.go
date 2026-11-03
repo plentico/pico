@@ -125,6 +125,7 @@ func setProps(fence string, props map[string]any) (string, string) {
 	// "$1" (a reference to the match), "prop x;" (another prop) or
 	// "let"/"const" (a declaration needing a semicolon).
 	var values []string
+	externals := map[string]any{}
 	for name, value := range props {
 		// A prop's name is an identifier; any other key can't be a prop, and
 		// matched literally it could spell out a stretch of the template.
@@ -134,7 +135,13 @@ func setProps(fence string, props map[string]any) (string, string) {
 		reProp := regexp.MustCompile(fmt.Sprintf(`prop (%s)(\s?=\s?(.*?))?;`, regexp.QuoteMeta(name)))
 		pScopeExp = reProp.ReplaceAllLiteralString(pScopeExp, "")
 		placeholder := "\uE002" + strconv.Itoa(len(values)) + "\uE003"
-		values = append(values, anyToString(value))
+		if external, ok := value.(ExternalProp); ok {
+			externalName := "__pico_external_" + strconv.Itoa(len(externals))
+			externals[externalName] = external.Value
+			values = append(values, externalName)
+		} else {
+			values = append(values, anyToString(value))
+		}
 		fence = reProp.ReplaceAllLiteralString(fence, "let "+name+" = "+placeholder+";")
 	}
 
@@ -177,6 +184,7 @@ func setProps(fence string, props map[string]any) (string, string) {
 	})
 
 	pScopeExp = makeAttrStr(pScopeExp)
+	externalPropBindings[fence] = externals
 	return fence, pScopeExp
 }
 
@@ -219,6 +227,11 @@ func evalJS(jsCode string, fence string) any {
 		return v
 	}
 	vm := goja.New()
+	for name, value := range externalPropBindings[fence] {
+		if err := vm.Set(name, value); err != nil {
+			return ""
+		}
+	}
 	goja_value, err := vm.RunString(fence + jsCode)
 	if err != nil {
 		// Use a fresh VM to check if the fence itself is valid.
@@ -226,6 +239,9 @@ func evalJS(jsCode string, fence string) any {
 		// "already declared" SyntaxErrors because let/const bindings from
 		// the first (failed) run still exist in the VM's scope.
 		fenceVm := goja.New()
+		for name, value := range externalPropBindings[fence] {
+			_ = fenceVm.Set(name, value)
+		}
 		_, fenceErr := fenceVm.RunString(fence)
 		if fenceErr != nil {
 			if !suppressJSErrors {
@@ -410,7 +426,13 @@ func anyToString(value any) string {
 func flattenCompArgs(m map[string]any) string {
 	parts := make([]string, 0, len(m))
 	for k, v := range m {
-		parts = append(parts, fmt.Sprintf("%s = %s;", k, v))
+		value := v
+		if _, ok := v.(ExternalProp); ok {
+			// The external value is loaded into the client scope under its prop
+			// name. Serializing it into p-scope would defeat externalization.
+			value = k
+		}
+		parts = append(parts, fmt.Sprintf("%s = %s;", k, value))
 	}
 	return makeAttrStr(strings.Join(parts, " "))
 }

@@ -1,6 +1,7 @@
 package pico
 
 import (
+	"regexp"
 	"strings"
 
 	"github.com/dop251/goja"
@@ -24,16 +25,26 @@ var evalPrograms = map[string]*goja.Program{}
 // parsed for each item.
 var fenceExtends = map[string]int{}
 
+// readonlyEvalVMs reuses a fence's initialized VM for expressions that only
+// read variables, object properties, or array elements. This prevents a loop
+// with several field interpolations from recomputing its frontmatter (and
+// reimporting external props) for every field.
+var readonlyEvalVMs = map[string]*goja.Runtime{}
+var reReadonlyExpression = regexp.MustCompile(`^[A-Za-z_$][A-Za-z0-9_$]*(?:(?:\.[A-Za-z_$][A-Za-z0-9_$]*)|(?:\[[0-9]+\]))*$`)
+
 // resetEvalCache drops the parsed programs; it's called for each page.
 func resetEvalCache() {
 	evalPrograms = map[string]*goja.Program{}
 	fenceExtends = map[string]int{}
+	readonlyEvalVMs = map[string]*goja.Runtime{}
+	externalPropBindings = map[string]map[string]any{}
 }
 
 // extendFence returns fence followed by decl (a loop variable's declaration).
 func extendFence(fence, decl string) string {
 	extended := fence + decl
 	fenceExtends[extended] = len(fence)
+	externalPropBindings[extended] = externalPropBindings[fence]
 	return extended
 }
 
@@ -98,7 +109,22 @@ func evalParsed(jsCode, fence string) (any, bool) {
 	if !ok {
 		return nil, false
 	}
+	readonly := len(externalPropBindings[fence]) > 0 && reReadonlyExpression.MatchString(strings.TrimSpace(jsCode))
+	if readonly {
+		if vm := readonlyEvalVMs[fence]; vm != nil {
+			v, err := vm.RunProgram(expr)
+			if err != nil {
+				return nil, false
+			}
+			return v.Export(), true
+		}
+	}
 	vm := goja.New()
+	for name, value := range externalPropBindings[fence] {
+		if err := vm.Set(name, value); err != nil {
+			return nil, false
+		}
+	}
 	for _, p := range progs {
 		if _, err := vm.RunProgram(p); err != nil {
 			return nil, false
@@ -107,6 +133,9 @@ func evalParsed(jsCode, fence string) (any, bool) {
 	v, err := vm.RunProgram(expr)
 	if err != nil {
 		return nil, false
+	}
+	if readonly {
+		readonlyEvalVMs[fence] = vm
 	}
 	return v.Export(), true
 }

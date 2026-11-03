@@ -616,10 +616,10 @@ func evalControlTree(controlTree []control, scopeStack []scopeStackItem, props m
 			newProps := make(map[string]any)
 			// Evaluate both regular and sync props
 			for prop_name, prop_value := range ctrl.compProps.Regular {
-				newProps[prop_name] = evalJS(fmt.Sprintf(`%s`, prop_value), fence)
+				newProps[prop_name] = evalComponentProp(props, prop_value, fence)
 			}
 			for prop_name, prop_value := range ctrl.compProps.Sync {
-				newProps[prop_name] = evalJS(fmt.Sprintf(`%s`, prop_value), fence)
+				newProps[prop_name] = evalComponentProp(props, prop_value, fence)
 			}
 			var compPath string
 			for _, comp := range components {
@@ -640,10 +640,10 @@ func evalControlTree(controlTree []control, scopeStack []scopeStackItem, props m
 			newProps := make(map[string]any)
 			// Evaluate both regular and sync props
 			for prop_name, prop_value := range ctrl.dynamicCompProps.Regular {
-				newProps[prop_name] = evalJS(fmt.Sprintf(`%s`, prop_value), fence)
+				newProps[prop_name] = evalComponentProp(props, prop_value, fence)
 			}
 			for prop_name, prop_value := range ctrl.dynamicCompProps.Sync {
-				newProps[prop_name] = evalJS(fmt.Sprintf(`%s`, prop_value), fence)
+				newProps[prop_name] = evalComponentProp(props, prop_value, fence)
 			}
 			compName, resolvedCompPath, resolved := resolveDynamicCompPath(ctrl.dynamicCompPath, fence, templateDir)
 			if !pattrEnabled {
