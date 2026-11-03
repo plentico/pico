@@ -225,18 +225,9 @@ func scopeHTML(markup string, props CompProps, pScopeExp string, fence string, u
 				syncScope := flattenCompArgs(props.Sync)
 
 				if regularScope != "" {
-					// Avoid duplicating assignments already carried in pScopeExp.
-					var parts []string
-					for _, assignment := range strings.Split(regularScope, ";") {
-						assignment = strings.TrimSpace(assignment)
-						if assignment == "" {
-							continue
-						}
-						if !strings.Contains(pScopeExp, assignment+";") {
-							parts = append(parts, assignment+";")
-						}
-					}
-					pScopeExp = strings.Join(parts, " ") + pScopeExp
+					// Prop initializers must run even when the component's first
+					// statement happens to be the same assignment expression.
+					pScopeExp = regularScope + pScopeExp
 				}
 
 				// Add p-scope attribute
