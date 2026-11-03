@@ -535,9 +535,9 @@ func evalControlTree(controlTree []control, scopeStack []scopeStackItem, props m
 					pForExpr := ctrl.forVar + " " + ctrl.forKeyword + " " + ctrl.forCollection
 					var templateLoopFence string
 					if len(iterationItems) > 0 {
-						templateLoopFence = extendFence(fence, "\nlet "+ctrl.forVar+" = "+anyToString(iterationItems[0])+";")
+						templateLoopFence = extendLoopFence(fence, ctrl.forVar, iterationItems[0])
 					} else {
-						templateLoopFence = extendFence(fence, "\nlet "+ctrl.forVar+" = null;")
+						templateLoopFence = extendLoopFence(fence, ctrl.forVar, nil)
 					}
 					templateNewProps := make(map[string]any)
 					for k, v := range props {
@@ -598,7 +598,7 @@ func evalControlTree(controlTree []control, scopeStack []scopeStackItem, props m
 						} else {
 							// Normal (non-destructuring) case
 							newProps[ctrl.forVar] = item
-							loopFence = extendFence(fence, "\nlet "+ctrl.forVar+" = "+anyToString(item)+";")
+							loopFence = extendLoopFence(fence, ctrl.forVar, item)
 						}
 
 						markup, newScopeStack := evalControlTree(ctrl.children, scopeStack, newProps, pScopeExp, loopFence, components, pattrEnabled, templateDir)

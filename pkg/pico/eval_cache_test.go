@@ -98,21 +98,43 @@ func comparable(markup string) string {
 	})
 }
 
-// A loop item's frontmatter is parsed as its own line, not with the whole
-// frontmatter again.
-func TestEvalCacheParsesLoopItemsAlone(t *testing.T) {
+// Simple loop items reuse the base VM, so their declarations do not need to
+// be parsed or evaluated as separate programs.
+func TestEvalCacheSkipsDeclarationsForSimpleLoopItems(t *testing.T) {
 	RenderRoot(writeEvalCacheSite(t), evalCacheProps(50, 4, 2))
-	items := 0
 	for src := range evalPrograms {
 		if strings.HasPrefix(src, "\nlet item = ") {
-			items++
+			t.Errorf("simple loop item was parsed as a separate program: %.300s", src)
 		}
 		if strings.Contains(src, "let menu = ") && strings.Contains(src, "let item = ") {
 			t.Fatalf("a loop item was parsed with its frontmatter:\n%.300s", src)
 		}
 	}
-	if items != 50 {
-		t.Errorf("want each of the 50 menu items parsed on its own, got %d", items)
+}
+
+func TestReadonlyExpressionWhitelist(t *testing.T) {
+	readonly := []string{
+		"node.path",
+		"node.fields.external_url ? node.fields.external_url : node.path",
+		"content.pager > totalPages && totalPages > 0 ? totalPages : content.pager",
+		"cell * 2",
+	}
+	for _, expression := range readonly {
+		if !isReadonlyExpression(expression) {
+			t.Errorf("expected readonly expression: %s", expression)
+		}
+	}
+	mutating := []string{
+		"items.sort((a, b) => a.name.localeCompare(b.name))",
+		"counter++",
+		"counter = 2",
+		"delete content.fields.title",
+		"new Date",
+	}
+	for _, expression := range mutating {
+		if isReadonlyExpression(expression) {
+			t.Errorf("expected isolated evaluation for expression: %s", expression)
+		}
 	}
 }
 

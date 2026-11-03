@@ -31,12 +31,39 @@ var fenceExtends = map[string]int{}
 // reimporting external props) for every field.
 var readonlyEvalVMs = map[string]*goja.Runtime{}
 var reReadonlyExpression = regexp.MustCompile(`^[A-Za-z_$][A-Za-z0-9_$]*(?:(?:\.[A-Za-z_$][A-Za-z0-9_$]*)|(?:\[[0-9]+\]))*$`)
+var reLoopVariable = regexp.MustCompile(`^[A-Za-z_$][A-Za-z0-9_$]*$`)
+var reUnsafeExpressionWord = regexp.MustCompile(`\b(?:delete|new)\b`)
+var comparisonOperators = strings.NewReplacer("===", "", "!==", "", "==", "", "!=", "", "<=", "", ">=", "")
+
+// isReadonlyExpression accepts expressions that can read data and compute a
+// value but cannot call methods, assign variables, or update state. Keeping
+// this conservative lets the VM be reused without changing expression behavior.
+func isReadonlyExpression(expression string) bool {
+	expression = strings.TrimSpace(expression)
+	if expression == "" || strings.ContainsAny(expression, "(){};") ||
+		strings.Contains(expression, "++") || strings.Contains(expression, "--") ||
+		reUnsafeExpressionWord.MatchString(expression) {
+		return false
+	}
+	return !strings.Contains(comparisonOperators.Replace(expression), "=")
+}
+
+type loopBinding struct {
+	base  string
+	name  string
+	value any
+}
+
+var loopBindings = map[string]loopBinding{}
+var loopBaseEvalVMs = map[string]*goja.Runtime{}
 
 // resetEvalCache drops the parsed programs; it's called for each page.
 func resetEvalCache() {
 	evalPrograms = map[string]*goja.Program{}
 	fenceExtends = map[string]int{}
 	readonlyEvalVMs = map[string]*goja.Runtime{}
+	loopBindings = map[string]loopBinding{}
+	loopBaseEvalVMs = map[string]*goja.Runtime{}
 	externalPropBindings = map[string]map[string]any{}
 }
 
@@ -46,6 +73,54 @@ func extendFence(fence, decl string) string {
 	fenceExtends[extended] = len(fence)
 	externalPropBindings[extended] = externalPropBindings[fence]
 	return extended
+}
+
+// extendLoopFence records a simple loop binding so readonly expressions can
+// reuse the base frontmatter VM instead of rebuilding it for every item.
+func extendLoopFence(fence, name string, value any) string {
+	extended := extendFence(fence, "\nlet "+name+" = "+anyToString(value)+";")
+	if reLoopVariable.MatchString(name) {
+		loopBindings[extended] = loopBinding{base: fence, name: name, value: value}
+	}
+	return extended
+}
+
+func evalLoopReadonly(jsCode, fence string) (any, bool) {
+	binding, ok := loopBindings[fence]
+	if !ok || !isReadonlyExpression(jsCode) {
+		return nil, false
+	}
+	vm := loopBaseEvalVMs[binding.base]
+	if vm == nil {
+		vm = goja.New()
+		for name, value := range externalPropBindings[binding.base] {
+			if err := vm.Set(name, value); err != nil {
+				return nil, false
+			}
+		}
+		progs, ok := fencePrograms(binding.base)
+		if !ok {
+			return nil, false
+		}
+		for _, p := range progs {
+			if _, err := vm.RunProgram(p); err != nil {
+				return nil, false
+			}
+		}
+		loopBaseEvalVMs[binding.base] = vm
+	}
+	if err := vm.Set(binding.name, binding.value); err != nil {
+		return nil, false
+	}
+	expr, ok := parsedProgram(jsCode)
+	if !ok {
+		return nil, false
+	}
+	v, err := vm.RunProgram(expr)
+	if err != nil {
+		return nil, false
+	}
+	return v.Export(), true
 }
 
 func parsedProgram(src string) (*goja.Program, bool) {
@@ -101,6 +176,9 @@ func evalParsed(jsCode, fence string) (any, bool) {
 	if strings.TrimSpace(jsCode) == "" {
 		return nil, false
 	}
+	if value, ok := evalLoopReadonly(jsCode, fence); ok {
+		return value, true
+	}
 	progs, ok := fencePrograms(fence)
 	if !ok {
 		return nil, false
@@ -109,7 +187,7 @@ func evalParsed(jsCode, fence string) (any, bool) {
 	if !ok {
 		return nil, false
 	}
-	readonly := len(externalPropBindings[fence]) > 0 && reReadonlyExpression.MatchString(strings.TrimSpace(jsCode))
+	readonly := len(externalPropBindings[fence]) > 0 && isReadonlyExpression(jsCode)
 	if readonly {
 		if vm := readonlyEvalVMs[fence]; vm != nil {
 			v, err := vm.RunProgram(expr)
