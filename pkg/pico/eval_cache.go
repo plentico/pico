@@ -55,6 +55,19 @@ type loopBinding struct {
 }
 
 var loopBindings = map[string]loopBinding{}
+
+// loopDecl is one loop variable (a name or a destructuring pattern) and the
+// source of its value, as declared after a fence by extendLoopFence.
+type loopDecl struct {
+	pattern string
+	value   string
+}
+
+var loopDecls = map[string]loopDecl{}
+
+// loopShadows caches, per loop fence, whether its loop variables clash with
+// names the frontmatter (or an outer loop) already declares.
+var loopShadows = map[string]bool{}
 var loopBaseEvalVMs = map[string]*goja.Runtime{}
 
 // resetEvalCache drops the parsed programs; it's called for each page.
@@ -63,6 +76,8 @@ func resetEvalCache() {
 	fenceExtends = map[string]int{}
 	readonlyEvalVMs = map[string]*goja.Runtime{}
 	loopBindings = map[string]loopBinding{}
+	loopDecls = map[string]loopDecl{}
+	loopShadows = map[string]bool{}
 	loopBaseEvalVMs = map[string]*goja.Runtime{}
 	externalPropBindings = map[string]map[string]any{}
 }
@@ -78,11 +93,62 @@ func extendFence(fence, decl string) string {
 // extendLoopFence records a simple loop binding so readonly expressions can
 // reuse the base frontmatter VM instead of rebuilding it for every item.
 func extendLoopFence(fence, name string, value any) string {
-	extended := extendFence(fence, "\nlet "+name+" = "+anyToString(value)+";")
+	valueSrc := anyToString(value)
+	extended := extendFence(fence, "\nlet "+name+" = "+valueSrc+";")
+	loopDecls[extended] = loopDecl{pattern: name, value: valueSrc}
 	if reLoopVariable.MatchString(name) {
 		loopBindings[extended] = loopBinding{base: fence, name: name, value: value}
 	}
 	return extended
+}
+
+// shadowLoopVars handles a loop variable with the same name as a variable
+// the frontmatter (or an outer loop) declares. Declaring it after the fence
+// would be a "has already been declared" error, so instead the expression is
+// evaluated after the frontmatter alone, inside one arrow function per loop
+// level whose parameter is the loop variable:
+//
+//	((item) => (expr))(value)
+//
+// The loop variable then shadows the frontmatter's within the expression,
+// as it would in a JavaScript for loop. It reports false when fence has no
+// such clash, and the expression is evaluated as before.
+func shadowLoopVars(jsCode, fence string) (string, string, bool) {
+	if _, ok := loopDecls[fence]; !ok || strings.TrimSpace(jsCode) == "" {
+		return "", "", false
+	}
+	decls := []loopDecl{}
+	base := fence
+	for {
+		decl, ok := loopDecls[base]
+		if !ok {
+			break
+		}
+		decls = append(decls, decl)
+		base = base[:fenceExtends[base]]
+	}
+	shadows, ok := loopShadows[fence]
+	if !ok {
+		_, err := goja.Compile("", fence, false)
+		shadows = err != nil && strings.Contains(err.Error(), "has already been declared")
+		if shadows {
+			if _, baseErr := goja.Compile("", base, false); baseErr != nil {
+				shadows = false // the frontmatter itself is broken: report that as before
+			}
+		}
+		loopShadows[fence] = shadows
+	}
+	if !shadows {
+		return "", "", false
+	}
+	expr := jsCode
+	for _, decl := range decls { // innermost loop first
+		expr = "((" + decl.pattern + ") => (" + expr + "\n))(" + decl.value + ")"
+	}
+	if _, err := goja.Compile("", expr, false); err != nil {
+		return "", "", false // not a single expression, such as a statement
+	}
+	return expr, base, true
 }
 
 func evalLoopReadonly(jsCode, fence string) (any, bool) {

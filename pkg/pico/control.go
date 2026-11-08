@@ -580,7 +580,7 @@ func evalControlTree(controlTree []control, scopeStack []scopeStackItem, props m
 									}
 								}
 								// Build fence with destructured variables - just the destructuring statement
-								loopFence = extendFence(fence, "\nlet "+ctrl.forVar+" = "+anyToString(item)+";")
+								loopFence = extendLoopFence(fence, ctrl.forVar, item)
 							} else if strings.HasPrefix(ctrl.forVar, "{") {
 								// Object destructuring: {a, b}
 								// Used when iterating over arrays of objects: for (let {name, age} of people)
@@ -593,7 +593,7 @@ func evalControlTree(controlTree []control, scopeStack []scopeStackItem, props m
 									}
 								}
 								// Build fence with destructured variables
-								loopFence = extendFence(fence, "\nlet "+ctrl.forVar+" = "+anyToString(item)+";")
+								loopFence = extendLoopFence(fence, ctrl.forVar, item)
 							}
 						} else {
 							// Normal (non-destructuring) case
