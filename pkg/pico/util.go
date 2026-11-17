@@ -62,7 +62,7 @@ func scopedClassForSeed(seed string, tag string) string {
 func templateParts(path string) (string, string, string, string) {
 	c, err := os.ReadFile(path)
 	if err != nil {
-		log.Fatal(err)
+		log.Fatalf("Error reading Pico template %q: %v", path, err)
 	}
 	template := string(c)
 	reFence := regexp.MustCompile(`(?s)---(.*?)---`)
@@ -290,6 +290,15 @@ func getComponents(path, fence string) (string, []Component) {
 		}
 	}
 	return fence, components
+}
+
+func resolveComponentPath(components []Component, name, templatePath string) (string, error) {
+	for _, comp := range components {
+		if comp.Name == name {
+			return comp.Path, nil
+		}
+	}
+	return "", fmt.Errorf("Component <%s> is used in %s but is not imported; add `import %s from \"...\";` to that file", name, templatePath, name)
 }
 
 func getCompArgs(comp_decl string) CompProps {

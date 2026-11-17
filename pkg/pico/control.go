@@ -621,11 +621,9 @@ func evalControlTree(controlTree []control, scopeStack []scopeStackItem, props m
 			for prop_name, prop_value := range ctrl.compProps.Sync {
 				newProps[prop_name] = evalComponentProp(props, prop_value, fence)
 			}
-			var compPath string
-			for _, comp := range components {
-				if comp.Name == ctrl.compName {
-					compPath = comp.Path
-				}
+			compPath, err := resolveComponentPath(components, ctrl.compName, currentTemplatePath)
+			if err != nil {
+				log.Fatal(err)
 			}
 			markup, script, style, newScopeStack, newPScopeExp, newFence := Render(compPath, newProps, scopeStack, !pattrEnabled)
 			markup, scopedElements := scopeHTML(markup, ctrl.compProps, newPScopeExp, newFence, pattrEnabled)
