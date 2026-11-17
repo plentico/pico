@@ -381,7 +381,7 @@ func traverse(node *html.Node, scopedElements []scopedElement, fence string, use
 							// Original behavior for simple expressions
 							attr := html.Attribute{
 								Key: "p-text",
-								Val: "`" + strings.ReplaceAll(strings.ReplaceAll(node.Data, "{", "${"), "\"", "'") + "`",
+								Val: templateLiteral(node.Data),
 							}
 							node.Parent.Attr = append(node.Parent.Attr, attr)
 						}
@@ -389,7 +389,7 @@ func traverse(node *html.Node, scopedElements []scopedElement, fence string, use
 						// Original behavior
 						attr := html.Attribute{
 							Key: "p-text",
-							Val: "`" + strings.ReplaceAll(strings.ReplaceAll(node.Data, "{", "${"), "\"", "'") + "`",
+							Val: templateLiteral(node.Data),
 						}
 						node.Parent.Attr = append(node.Parent.Attr, attr)
 					}
@@ -504,7 +504,7 @@ func traverse(node *html.Node, scopedElements []scopedElement, fence string, use
 							if usePattr {
 								// Use p-class for dynamic class attributes to preserve static/scoped classes
 								if attr.Key == "class" {
-									pClassVal := "`" + strings.ReplaceAll(strings.ReplaceAll(attr.Val, "{", "${"), "\"", "'") + "`"
+									pClassVal := templateLiteral(attr.Val)
 									node.Attr = append(node.Attr, html.Attribute{
 										Key: "p-class",
 										Val: pClassVal,
@@ -518,7 +518,7 @@ func traverse(node *html.Node, scopedElements []scopedElement, fence string, use
 								} else {
 									node.Attr = append(node.Attr, html.Attribute{
 										Key: "p-attr:" + attr.Key,
-										Val: "`" + strings.ReplaceAll(strings.ReplaceAll(attr.Val, "{", "${"), "\"", "'") + "`",
+										Val: templateLiteral(attr.Val),
 									})
 									node.Attr[i].Val = evalAllBrackets(attr.Val, fence)
 								}
@@ -593,7 +593,7 @@ func processLoopNode(node *html.Node, loopFence string, usePattr bool) {
 			if usePattr {
 				attr := html.Attribute{
 					Key: "p-text",
-					Val: "`" + strings.ReplaceAll(strings.ReplaceAll(node.Data, "{", "${"), "\"", "'") + "`",
+					Val: templateLiteral(node.Data),
 				}
 				node.Parent.Attr = append(node.Parent.Attr, attr)
 			}
@@ -662,12 +662,12 @@ func processLoopNode(node *html.Node, loopFence string, usePattr bool) {
 							if attr.Key == "class" {
 								node.Attr = append(node.Attr, html.Attribute{
 									Key: "p-class",
-									Val: "`" + strings.ReplaceAll(strings.ReplaceAll(attr.Val, "{", "${"), "\"", "'") + "`",
+									Val: templateLiteral(attr.Val),
 								})
 							} else {
 								node.Attr = append(node.Attr, html.Attribute{
 									Key: "p-attr:" + attr.Key,
-									Val: "`" + strings.ReplaceAll(strings.ReplaceAll(attr.Val, "{", "${"), "\"", "'") + "`",
+									Val: templateLiteral(attr.Val),
 								})
 							}
 						}
