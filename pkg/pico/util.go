@@ -300,6 +300,9 @@ func evalAllBracketsForHydration(str string, fence string) string {
 }
 
 func evalJS(jsCode string, fence string) any {
+	if expr, base, ok := shadowLoopVars(jsCode, fence); ok {
+		return evalJS(expr, base)
+	}
 	if v, ok := evalParsed(jsCode, fence); ok {
 		return v
 	}
