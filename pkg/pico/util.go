@@ -520,7 +520,7 @@ func flattenCompArgs(m map[string]any) string {
 		}
 		parts = append(parts, fmt.Sprintf("%s = %s;", k, value))
 	}
-	return makeAttrStr(strings.Join(parts, " "))
+	return strings.ReplaceAll(makeAttrStr(strings.Join(parts, " ")), `\'`, `'`)
 }
 
 func isBoolAndTrue(value any) bool {

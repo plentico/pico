@@ -397,7 +397,7 @@ func traverse(node *html.Node, scopedElements []scopedElement, fence string, use
 			}
 			node.Data = evalAllBrackets(node.Data, fence)
 		}
-		if node.Type == html.ElementNode && node.DataAtom.String() != "" {
+		if node.Type == html.ElementNode {
 			tag := node.Data
 			id := ""
 			classes := []string{}
