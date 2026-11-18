@@ -208,11 +208,21 @@ func makeAttrStr(str string) string {
 	return str
 }
 
+func pattrAttributeExpression(value string) string {
+	if strings.HasPrefix(value, "{") && matchingExpressionBrace(value, 0) == len(value)-1 {
+		return value[1 : len(value)-1]
+	}
+	return "`" + strings.ReplaceAll(strings.ReplaceAll(value, "{", "${"), "\"", "'") + "`"
+}
+
 func evalAllBrackets(str string, fence string) string {
 	for {
 		startPos := strings.IndexRune(str, '{')
-		endPos := strings.IndexRune(str, '}')
-		if startPos == -1 || endPos == -1 {
+		if startPos == -1 {
+			break
+		}
+		endPos := matchingExpressionBrace(str, startPos)
+		if endPos == -1 {
 			break
 		}
 		jsCode := str[startPos+1 : endPos]
@@ -220,6 +230,63 @@ func evalAllBrackets(str string, fence string) string {
 		str = str[0:startPos] + evaluated + str[endPos+1:]
 	}
 	return str
+}
+
+// matchingExpressionBrace finds the closing brace for a JavaScript expression.
+// Braces inside quoted strings are ignored, while ${...} interpolations inside
+// template literals are tracked as JavaScript rather than literal text.
+func matchingExpressionBrace(str string, startPos int) int {
+	depth := 1
+	var quote rune
+	escaped := false
+	skipNext := false
+	var interpolationDepths []int
+
+	for i, char := range str[startPos+1:] {
+		if skipNext {
+			skipNext = false
+			continue
+		}
+		pos := startPos + 1 + i
+		if escaped {
+			escaped = false
+			continue
+		}
+		if quote != 0 {
+			if char == '\\' {
+				escaped = true
+				continue
+			}
+			if quote == '`' && char == '$' && pos+1 < len(str) && str[pos+1] == '{' {
+				depth++
+				interpolationDepths = append(interpolationDepths, depth)
+				quote = 0
+				skipNext = true
+				continue
+			}
+			if char == quote {
+				quote = 0
+			}
+			continue
+		}
+
+		switch char {
+		case '\'', '"', '`':
+			quote = char
+		case '{':
+			depth++
+		case '}':
+			depth--
+			if depth == 0 {
+				return pos
+			}
+			if len(interpolationDepths) > 0 && depth == interpolationDepths[len(interpolationDepths)-1]-1 {
+				interpolationDepths = interpolationDepths[:len(interpolationDepths)-1]
+				quote = '`'
+			}
+		}
+	}
+	return -1
 }
 
 func evalJS(jsCode string, fence string) any {

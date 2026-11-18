@@ -518,7 +518,7 @@ func traverse(node *html.Node, scopedElements []scopedElement, fence string, use
 								} else {
 									node.Attr = append(node.Attr, html.Attribute{
 										Key: "p-attr:" + attr.Key,
-										Val: "`" + strings.ReplaceAll(strings.ReplaceAll(attr.Val, "{", "${"), "\"", "'") + "`",
+										Val: pattrAttributeExpression(attr.Val),
 									})
 									node.Attr[i].Val = evalAllBrackets(attr.Val, fence)
 								}
@@ -667,7 +667,7 @@ func processLoopNode(node *html.Node, loopFence string, usePattr bool) {
 							} else {
 								node.Attr = append(node.Attr, html.Attribute{
 									Key: "p-attr:" + attr.Key,
-									Val: "`" + strings.ReplaceAll(strings.ReplaceAll(attr.Val, "{", "${"), "\"", "'") + "`",
+									Val: pattrAttributeExpression(attr.Val),
 								})
 							}
 						}
