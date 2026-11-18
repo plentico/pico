@@ -1,6 +1,8 @@
 package pico
 
 import (
+	"bytes"
+	"log"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -384,5 +386,43 @@ let comp = "thing";
 	rule := ".title." + scopedClass + "{color:green;}"
 	if count := strings.Count(style, rule); count != 1 {
 		t.Errorf("Expected exactly one %q rule, got %d in: %s", rule, count, style)
+	}
+}
+
+func TestCompRegistryDoesNotLogUnresolvedPropAttributes(t *testing.T) {
+	dir := t.TempDir()
+	writeFixture(t, filepath.Join(dir, "components", "icon.pico"), `---
+prop name;
+---
+<a href={`+"`/icons.svg#${name}`"+`}>Icon</a>
+`)
+	writeFixture(t, filepath.Join(dir, "page.pico"), `---
+let icons = ["battery", "drop"];
+---
+<!DOCTYPE html>
+<html><head></head><body>
+{for let icon of icons}
+<="./components/icon.pico" name={icon} />
+{/for}
+</body></html>
+`)
+
+	var logs bytes.Buffer
+	previousWriter := log.Writer()
+	previousFlags := log.Flags()
+	log.SetOutput(&logs)
+	log.SetFlags(0)
+	defer func() {
+		log.SetOutput(previousWriter)
+		log.SetFlags(previousFlags)
+	}()
+
+	markup, _, _ := RenderRoot(filepath.Join(dir, "page.pico"), map[string]any{})
+
+	if strings.Contains(logs.String(), "Error evaluating JS expression") {
+		t.Fatalf("expected the inert component registry not to log unresolved prop errors, got:\n%s", logs.String())
+	}
+	if !strings.Contains(markup, "p-attr:href=\"`/icons.svg#${name}`\"") {
+		t.Fatalf("expected the registry's client binding, got:\n%s", markup)
 	}
 }

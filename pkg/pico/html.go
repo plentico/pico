@@ -520,7 +520,7 @@ func traverse(node *html.Node, scopedElements []scopedElement, fence string, use
 										Key: "p-attr:" + attr.Key,
 										Val: pattrAttributeExpression(attr.Val),
 									})
-									node.Attr[i].Val = evalAllBrackets(attr.Val, fence)
+									node.Attr[i].Val = evalAllBracketsForHydration(attr.Val, fence)
 								}
 							} else {
 								node.Attr[i].Val = evalAllBrackets(attr.Val, fence)
@@ -671,7 +671,7 @@ func processLoopNode(node *html.Node, loopFence string, usePattr bool) {
 								})
 							}
 						}
-						node.Attr[i].Val = evalAllBrackets(attr.Val, loopFence)
+						node.Attr[i].Val = evalAllBracketsForHydration(attr.Val, loopFence)
 					}
 				}
 			}

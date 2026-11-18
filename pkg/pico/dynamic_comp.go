@@ -215,10 +215,9 @@ func renderCompRegistry(scopeStack []scopeStackItem, usePattr bool) (string, []s
 		wasSuppressed := suppressJSErrors
 		suppressJSErrors = true
 		markup, script, style, newScopeStack, newPScopeExp, newFence := Render(entry.path, entry.evaluatedProps, []scopeStackItem{}, !usePattr)
+		markup, scopedElements := scopeHTML(markup, entry.compProps, newPScopeExp, newFence, usePattr, entry.name)
 		suppressJSErrors = wasSuppressed
 		registryRenderMode = wasRegistryMode
-
-		markup, scopedElements := scopeHTML(markup, entry.compProps, newPScopeExp, newFence, usePattr, entry.name)
 
 		// Styles are emitted once per component and never treeshaken: inline SSR
 		// markup, this registry source, and any client-side re-render all share

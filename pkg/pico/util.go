@@ -289,6 +289,16 @@ func matchingExpressionBrace(str string, startPos int) int {
 	return -1
 }
 
+func evalAllBracketsForHydration(str string, fence string) string {
+	// A Pattr-bound attribute is evaluated again with the component's props in
+	// the browser. SSR evaluation is best-effort for registry and unresolved
+	// client scopes, so don't report those expected evaluation failures.
+	wasSuppressed := suppressJSErrors
+	suppressJSErrors = true
+	defer func() { suppressJSErrors = wasSuppressed }()
+	return evalAllBrackets(str, fence)
+}
+
 func evalJS(jsCode string, fence string) any {
 	if v, ok := evalParsed(jsCode, fence); ok {
 		return v
