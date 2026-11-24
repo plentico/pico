@@ -313,61 +313,18 @@ func traverse(node *html.Node, scopedElements []scopedElement, fence string, use
 								// Parse evaluated HTML and insert as nodes
 								htmlNodes, err := parseNoFix(evaluated)
 								if err == nil && len(htmlNodes) > 0 {
-									// Get text before and after the expression
-									beforeText := expr[:startIdx]
-									afterText := expr[endIdx+1:]
-									// Clear current node data
-									node.Data = ""
-									// Insert before text if any
-									if beforeText != "" {
-										node.Data = beforeText
+									// Keep the original text node as an anchor so every fragment is
+									// inserted before the same following sibling in source order.
+									node.Data = expr[:startIdx]
+									nextSibling := node.NextSibling
+									for _, n := range htmlNodes {
+										node.Parent.InsertBefore(n, nextSibling)
 									}
-									// Insert parsed HTML nodes
-									for i, n := range htmlNodes {
-										if i == 0 {
-											// First node replaces current or is inserted after
-											if beforeText == "" {
-												// Replace current node's data with first text node content if it's text
-												if n.Type == html.TextNode {
-													node.Data = n.Data
-												} else {
-													// Insert element node as sibling
-													if node.Parent != nil {
-														node.Parent.InsertBefore(n, node.NextSibling)
-													}
-												}
-											} else {
-												// Add to existing text
-												if n.Type == html.TextNode {
-													node.Data += n.Data
-												}
-											}
-										} else {
-											// Insert subsequent nodes after current
-											if node.Parent != nil {
-												node.Parent.InsertBefore(n, node.NextSibling)
-											}
-										}
-									}
-									// Add after text to last inserted node or current
-									if afterText != "" {
-										// Find the last node we inserted
-										lastNode := node
-										for sibling := node.NextSibling; sibling != nil; sibling = sibling.NextSibling {
-											lastNode = sibling
-										}
-										if lastNode.Type == html.TextNode {
-											lastNode.Data += afterText
-										} else {
-											// Insert text node after
-											textNode := &html.Node{
-												Type: html.TextNode,
-												Data: afterText,
-											}
-											if lastNode.Parent != nil {
-												lastNode.Parent.InsertBefore(textNode, lastNode.NextSibling)
-											}
-										}
+									if afterText := expr[endIdx+1:]; afterText != "" {
+										node.Parent.InsertBefore(&html.Node{
+											Type: html.TextNode,
+											Data: afterText,
+										}, nextSibling)
 									}
 								} else {
 									// Fallback: treat as text
