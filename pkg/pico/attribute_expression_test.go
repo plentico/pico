@@ -1,6 +1,8 @@
 package pico
 
 import (
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 )
@@ -14,6 +16,36 @@ func TestTemplateLiteralAttribute(t *testing.T) {
 	}
 	if !strings.Contains(rendered, "p-attr:href=\"`/icons.svg#${icon}`\"") {
 		t.Fatalf("expected Pico to preserve the complete expression for Pattr, got:\n%s", rendered)
+	}
+}
+func TestLoopComponentTemplateLiteralAttributes(t *testing.T) {
+	d := t.TempDir()
+	page := `---
+import Icon from "./icon.pico";
+let features = [{icon: "signal"}];
+---
+{for let feature in features}<Icon name={feature.icon} />{/for}`
+	icon := `---
+prop name;
+let className = "";
+---
+<svg class="icon {className}"><use href={` + "`/icons.svg#${name}`" + `} /></svg>`
+	if err := os.WriteFile(filepath.Join(d, "page.pico"), []byte(page), 0644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(d, "icon.pico"), []byte(icon), 0644); err != nil {
+		t.Fatal(err)
+	}
+	markup, _, _ := RenderRoot(filepath.Join(d, "page.pico"), nil)
+
+	if !strings.Contains(markup, "p-class=\"`icon ${className}`\"") {
+		t.Fatalf("nested component p-class was processed as a Pico expression:\n%s", markup)
+	}
+	if strings.Contains(markup, "p-attr:p-class") {
+		t.Fatalf("Pattr directive was incorrectly converted to a bound attribute:\n%s", markup)
+	}
+	if !strings.Contains(markup, "p-attr:href=\"`/icons.svg#${name}`\"") {
+		t.Fatalf("nested component bound href was not preserved:\n%s", markup)
 	}
 }
 

@@ -207,6 +207,11 @@ func makeAttrStr(str string) string {
 }
 
 func pattrAttributeExpression(value string) string {
+	// A template literal is already a complete Pattr expression. Its ${...}
+	// interpolation is not a separate Pico attribute expression to evaluate.
+	if strings.HasPrefix(value, "`") && strings.HasSuffix(value, "`") {
+		return value
+	}
 	if strings.HasPrefix(value, "{") && matchingExpressionBrace(value, 0) == len(value)-1 {
 		return value[1 : len(value)-1]
 	}

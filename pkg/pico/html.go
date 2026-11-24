@@ -445,7 +445,7 @@ func traverse(node *html.Node, scopedElements []scopedElement, fence string, use
 					continue
 				}
 				if strings.Contains(attr.Val, "{") && strings.Contains(attr.Val, "}") {
-					if attr.Key != "p-text" && attr.Key != "p-scope" && attr.Key != "p-class" && !strings.HasPrefix(attr.Key, "p-attr") && !strings.HasPrefix(attr.Key, "p-on") && attr.Key != "p-model" && attr.Key != "p-comp" {
+					if attr.Key != "p-external-props" && attr.Key != "p-text" && attr.Key != "p-scope" && attr.Key != "p-class" && !strings.HasPrefix(attr.Key, "p-attr") && !strings.HasPrefix(attr.Key, "p-on") && attr.Key != "p-model" && attr.Key != "p-comp" {
 						if strings.HasPrefix(attr.Key, "on") {
 							eventName := attr.Key[2:]
 							expr := processEventHandler(attr.Val)
@@ -601,7 +601,7 @@ func processLoopNode(node *html.Node, loopFence string, usePattr bool) {
 				continue
 			}
 			if strings.Contains(attr.Val, "{") && strings.Contains(attr.Val, "}") {
-				if attr.Key != "p-text" && attr.Key != "p-scope" && !strings.HasPrefix(attr.Key, "p-attr") && !strings.HasPrefix(attr.Key, "p-on") && attr.Key != "p-model" && attr.Key != "p-comp" {
+				if attr.Key != "p-external-props" && attr.Key != "p-text" && attr.Key != "p-scope" && attr.Key != "p-class" && !strings.HasPrefix(attr.Key, "p-attr") && !strings.HasPrefix(attr.Key, "p-on") && attr.Key != "p-model" && attr.Key != "p-comp" {
 					if strings.HasPrefix(attr.Key, "on") {
 						eventName := attr.Key[2:]
 						expr := processEventHandler(attr.Val)
