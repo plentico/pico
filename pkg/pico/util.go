@@ -202,8 +202,6 @@ func makeAttrStr(str string) string {
 	// Replace line breaks and tabs with empty string, but preserve spacing around operators
 	str = strings.ReplaceAll(str, "\t", "")
 	str = strings.ReplaceAll(str, "\n", "")
-	str = strings.ReplaceAll(str, "'", "\\'")
-	str = strings.ReplaceAll(str, "\"", "'")
 
 	return str
 }
