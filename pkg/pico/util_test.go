@@ -100,3 +100,13 @@ let show_animals = true;`
 
 	t.Logf("Generated p-scope: %s", pScopeExp)
 }
+
+func TestMakeAttrStrPreservesURLsInsideStrings(t *testing.T) {
+	input := `part = {"label":"ESP32-S3","url":"https://docs.espressif.com/"}; // remove this comment
+source = {"url":"https://example.com/a//b"};`
+	want := `part = {"label":"ESP32-S3","url":"https://docs.espressif.com/"}; source = {"url":"https://example.com/a//b"};`
+
+	if got := makeAttrStr(input); got != want {
+		t.Fatalf("makeAttrStr() = %q, want %q", got, want)
+	}
+}

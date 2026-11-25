@@ -195,8 +195,7 @@ var rePropValue = regexp.MustCompile(`\x{E002}\d+\x{E003}`)
 var rePropName = regexp.MustCompile(`^[\p{L}\p{Nl}_$][\p{L}\p{Nl}\p{Mn}\p{Mc}\p{Nd}\p{Pc}_$]*$`)
 
 func makeAttrStr(str string) string {
-	reComments := regexp.MustCompile(`//.*`)
-	str = reComments.ReplaceAllString(str, "")
+	str = stripLineComments(str)
 
 	str = strings.TrimSpace(str)
 	// Replace line breaks and tabs with empty string, but preserve spacing around operators
@@ -204,6 +203,52 @@ func makeAttrStr(str string) string {
 	str = strings.ReplaceAll(str, "\n", "")
 
 	return str
+}
+
+// stripLineComments removes JavaScript line comments without treating the //
+// in quoted values such as URLs as the start of a comment.
+func stripLineComments(str string) string {
+	var result strings.Builder
+	var quote byte
+	escaped := false
+	comment := false
+
+	for index := 0; index < len(str); index++ {
+		char := str[index]
+		if comment {
+			if char == '\n' {
+				comment = false
+				result.WriteByte(char)
+			}
+			continue
+		}
+		if escaped {
+			result.WriteByte(char)
+			escaped = false
+			continue
+		}
+		if quote != 0 {
+			result.WriteByte(char)
+			if char == '\\' {
+				escaped = true
+			} else if char == quote {
+				quote = 0
+			}
+			continue
+		}
+		if char == '"' || char == '\'' || char == '`' {
+			quote = char
+			result.WriteByte(char)
+			continue
+		}
+		if char == '/' && index+1 < len(str) && str[index+1] == '/' {
+			comment = true
+			index++
+			continue
+		}
+		result.WriteByte(char)
+	}
+	return result.String()
 }
 
 func pattrAttributeExpression(value string) string {

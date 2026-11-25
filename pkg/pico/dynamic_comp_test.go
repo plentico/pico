@@ -331,6 +331,65 @@ let comp = "hero";
 	}
 }
 
+func TestDynamicCompInExternalContentFieldsLoop(t *testing.T) {
+	dir := t.TempDir()
+	writeCompFixtures(t, dir)
+	writeFixture(t, filepath.Join(dir, "page.pico"), `---
+prop content = {};
+---
+
+<!DOCTYPE html>
+<html>
+<head></head>
+<body>
+	<main>
+		{for let section of content.fields.sections}
+			<="./components/{section.component}.pico" fields={section.fields} />
+		{/for}
+	</main>
+</body>
+</html>
+`)
+
+	props := map[string]any{
+		"content": map[string]any{
+			"fields": map[string]any{
+				"sections": []any{
+					map[string]any{
+						"component": "hero",
+						"fields": map[string]any{
+							"title": "Welcome",
+							"items": []any{"a", "b"},
+						},
+					},
+					map[string]any{
+						"component": "quote",
+						"fields":    map[string]any{"text": "Nice"},
+					},
+				},
+			},
+		},
+	}
+
+	markup, _, _ := RenderRoot(filepath.Join(dir, "page.pico"), props)
+
+	if !strings.Contains(markup, `<template p-for="section of content.fields.sections"`) {
+		t.Errorf("Expected client loop over external content fields, got: %s", markup)
+	}
+	for _, expected := range []string{
+		`p-comp-node="./components/hero.pico"`,
+		`p-comp-node="./components/quote.pico"`,
+		`<template p-comp-src="./components/hero.pico">`,
+		`<template p-comp-src="./components/quote.pico">`,
+		`>Welcome</h2>`,
+		`>Nice</blockquote>`,
+	} {
+		if !strings.Contains(markup, expected) {
+			t.Errorf("Expected markup to contain %q, got: %s", expected, markup)
+		}
+	}
+}
+
 func TestDynamicCompSSRStyleClassParity(t *testing.T) {
 	dir := t.TempDir()
 	writeFixture(t, filepath.Join(dir, "thing.pico"), `---
