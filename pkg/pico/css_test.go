@@ -553,6 +553,21 @@ func TestGlobalCSSEdgeCases(t *testing.T) {
 	}
 }
 
+func TestAttributeSelectorScoping(t *testing.T) {
+	input := `details[open] .faq-plus::after, a[aria-current="page"], input[type="range"] { color: red; }`
+	scopedElements := []scopedElement{
+		{tag: "details", scopedClass: "scope123"},
+		{classes: []string{"faq-plus"}, scopedClass: "scope123"},
+		{tag: "a", scopedClass: "scope123"},
+		{tag: "input", scopedClass: "scope123"},
+	}
+	got := strings.ReplaceAll(scopeCSS(input, scopedElements), " ", "")
+	want := `details.scope123[open].faq-plus.scope123::after,a.scope123[aria-current="page"],input.scope123[type="range"]{color:red;}`
+	if got != want {
+		t.Fatalf("Expected attribute names to remain unscoped:\nwant %s\ngot  %s", want, got)
+	}
+}
+
 func TestPseudoSelectorScoping(t *testing.T) {
 	scopedElements := []scopedElement{
 		{tag: "span", classes: []string{"battery-icon"}, scopedClass: "scope123"},

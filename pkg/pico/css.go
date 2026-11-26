@@ -89,9 +89,25 @@ func findRulesetScopedClass(allSelectors [][]css.Token, lastValues []css.Token, 
 
 // outputScopedValues writes scoped selector tokens to the output builder
 // fallbackScopedClass is used when a selector isn't found in scopedElements (e.g. .not-there in .container, .not-there)
+func isInAttributeSelector(values []css.Token, index int) bool {
+	depth := 0
+	for i := 0; i < index; i++ {
+		switch values[i].TokenType {
+		case css.LeftBracketToken:
+			depth++
+		case css.RightBracketToken:
+			if depth > 0 {
+				depth--
+			}
+		}
+	}
+	return depth > 0
+}
+
 func outputScopedValues(values []css.Token, scopedElements []scopedElement, out *strings.Builder, fallbackScopedClass string) {
 	for i, val := range values {
 		isGlobal := false
+		inAttributeSelector := isInAttributeSelector(values, i)
 		skipOutput := false
 
 		if val.TokenType == css.DelimToken && string(val.Data) == "*" {
@@ -132,7 +148,7 @@ func outputScopedValues(values []css.Token, scopedElements []scopedElement, out 
 			// Pseudo-class and pseudo-element names are selector syntax, not tags.
 			// A scope class after a pseudo-element is invalid (e.g. ::before.scope).
 			out.Write(val.Data)
-		} else if val.TokenType == css.HashToken {
+		} else if val.TokenType == css.HashToken && !inAttributeSelector {
 			if !isGlobal {
 				idValue := string(val.Data)
 				if len(idValue) > 0 && idValue[0] == '#' {
@@ -150,7 +166,7 @@ func outputScopedValues(values []css.Token, scopedElements []scopedElement, out 
 			} else {
 				out.Write(val.Data)
 			}
-		} else if val.TokenType == css.IdentToken {
+		} else if val.TokenType == css.IdentToken && !inAttributeSelector {
 			if i > 0 && values[i-1].TokenType == css.DelimToken && string(values[i-1].Data) == "." {
 				if !isGlobal {
 					scopedClass := getScopedClass(string(val.Data), "class", scopedElements)
@@ -272,7 +288,7 @@ func parseSelectorParts(values []css.Token) []selectorPart {
 				idValue = idValue[1:]
 			}
 			parts = append(parts, selectorPart{id: idValue, isID: true})
-		} else if val.TokenType == css.IdentToken {
+		} else if val.TokenType == css.IdentToken && !inAttributeSelector {
 			// Check if this is preceded by a dot (class) - if so, we already handled it
 			if i > 0 && values[i-1].TokenType == css.DelimToken && string(values[i-1].Data) == "." {
 				continue // Already handled in chained class logic above
@@ -518,7 +534,9 @@ func scopeCSS(style string, scopedElements []scopedElement, noTreeshake ...bool)
 					continue
 				}
 
-				if val.TokenType == css.HashToken {
+				inAttributeSelector := isInAttributeSelector(values, i)
+
+				if val.TokenType == css.HashToken && !inAttributeSelector {
 					// ID selector (#id)
 					if !isGlobal {
 						idValue := string(val.Data)
@@ -534,7 +552,7 @@ func scopeCSS(style string, scopedElements []scopedElement, noTreeshake ...bool)
 					} else {
 						out.Write(val.Data)
 					}
-				} else if val.TokenType == css.IdentToken {
+				} else if val.TokenType == css.IdentToken && !inAttributeSelector {
 					// Could be tag selector or class name after .
 					if i > 0 && values[i-1].TokenType == css.DelimToken && string(values[i-1].Data) == "." {
 						// This is a class selector
