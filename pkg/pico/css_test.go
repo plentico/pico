@@ -568,6 +568,20 @@ func TestAttributeSelectorScoping(t *testing.T) {
 	}
 }
 
+func TestDeclarationValuesAreNotScoped(t *testing.T) {
+	input := `.back-camera i { background: radial-gradient(circle at 35% 30%, #77908a 0 10%, #142924 28%, #050d0a 70%); }`
+	scopedElements := []scopedElement{
+		{tag: "div", classes: []string{"back-camera"}, scopedClass: "scope123"},
+		{tag: "i", scopedClass: "scope456"},
+		{tag: "circle", scopedClass: "scope789"},
+	}
+	got := scopeCSS(input, scopedElements)
+	want := `.back-camera.scope123 i.scope456{background:radial-gradient(circle at 35% 30%,#77908a 0 10%,#142924 28%,#050d0a 70%);}`
+	if got != want {
+		t.Fatalf("Expected declaration values to remain unscoped:\nwant %s\ngot  %s", want, got)
+	}
+}
+
 func TestPseudoSelectorScoping(t *testing.T) {
 	scopedElements := []scopedElement{
 		{tag: "span", classes: []string{"battery-icon"}, scopedClass: "scope123"},

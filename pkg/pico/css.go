@@ -486,7 +486,18 @@ func scopeCSS(style string, scopedElements []scopedElement, noTreeshake ...bool)
 			}
 
 			values := p.Values()
+			parenthesisDepth := 0
 			for i, val := range values {
+				if val.TokenType == css.LeftParenthesisToken || val.TokenType == css.FunctionToken {
+					parenthesisDepth++
+				}
+				if parenthesisDepth > 0 {
+					out.Write(val.Data)
+					if val.TokenType == css.RightParenthesisToken {
+						parenthesisDepth--
+					}
+					continue
+				}
 				// Check if this token should be globally scoped (not scoped)
 				// A token is global if it's directly preceded by * delimiter
 				isGlobal := false
