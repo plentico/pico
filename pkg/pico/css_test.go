@@ -552,3 +552,51 @@ func TestGlobalCSSEdgeCases(t *testing.T) {
 		})
 	}
 }
+
+func TestPseudoSelectorScoping(t *testing.T) {
+	scopedElements := []scopedElement{
+		{tag: "span", classes: []string{"battery-icon"}, scopedClass: "scope123"},
+		{tag: "button", id: "power", classes: []string{"control"}, scopedClass: "scope456"},
+	}
+
+	tests := []struct {
+		name     string
+		input    string
+		expected string
+	}{
+		{
+			name:     "pseudo element on class",
+			input:    `.battery-icon::before { content: ""; }`,
+			expected: `.battery-icon.scope123::before{content:"";}`,
+		},
+		{
+			name:     "pseudo element on tag",
+			input:    `span::after { content: ""; }`,
+			expected: `span.scope123::after{content:"";}`,
+		},
+		{
+			name:     "pseudo class remains scoped",
+			input:    `.control:hover { color: red; }`,
+			expected: `.control.scope456:hover{color:red;}`,
+		},
+		{
+			name:     "pseudo element on ID",
+			input:    `#power::before { content: ""; }`,
+			expected: `#power.scope456::before{content:"";}`,
+		},
+		{
+			name:     "global pseudo element",
+			input:    `*.battery-icon::before { content: ""; }`,
+			expected: `.battery-icon::before{content:"";}`,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result := scopeCSS(tt.input, scopedElements)
+			if result != tt.expected {
+				t.Errorf("Expected: %s\nGot:      %s", tt.expected, result)
+			}
+		})
+	}
+}

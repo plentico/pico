@@ -128,7 +128,11 @@ func outputScopedValues(values []css.Token, scopedElements []scopedElement, out 
 			continue
 		}
 
-		if val.TokenType == css.HashToken {
+		if val.TokenType == css.IdentToken && i > 0 && values[i-1].TokenType == css.ColonToken {
+			// Pseudo-class and pseudo-element names are selector syntax, not tags.
+			// A scope class after a pseudo-element is invalid (e.g. ::before.scope).
+			out.Write(val.Data)
+		} else if val.TokenType == css.HashToken {
 			if !isGlobal {
 				idValue := string(val.Data)
 				if len(idValue) > 0 && idValue[0] == '#' {
